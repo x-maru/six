@@ -1,4 +1,4 @@
-<!-- Revision:013 -->
+<script>const version = "Rev. 013";</script>
 <!DOCTYPE html>
 <html>
 <head>
