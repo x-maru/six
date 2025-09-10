@@ -1,0 +1,66 @@
+name: Bump Revision & Title
+on:
+  workflow_dispatch:
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bump Revision and Inject Title Script
+        id: bump
+        run: |
+          python3 - <<'PY'
+import re, sys
+p = 'tedit.hta.txt'
+s = open(p, 'r', encoding='utf-8').read()
+m = re.search(r'<!--\\s*Revision:(\\d+)\\s*-->', s)
+if not m:
+    print('::error::Revision comment not found'); sys.exit(1)
+n = int(m.group(1)) + 1
+s = re.sub(r'<!--\\s*Revision:\\d+\\s*-->', f'<!-- Revision:{n:03d} -->', s, count=1)
+
+script = r"""
+<script type="text/javascript">
+(function(){
+  var rev='000';
+  try{
+    var nodes=document.childNodes;
+    for(var i=0;i<nodes.length;i++){
+      if(nodes[i].nodeType===8){
+        var m=nodes[i].nodeValue.match(/Revision\\s*:\\s*(\\d+)/i);
+        if(m){ rev=m[1]; break; }
+      }
+    }
+  }catch(e){}
+  document.title='tedit r'+rev;
+})();
+</script>
+""".strip()
+
+if 'document.title=\'tedit r\'' in s:
+    s = re.sub(r'<script[^>]*>.*?document\\.title=\'tedit r.*?</script>', script, s, flags=re.S)
+elif '</body>' in s:
+    s = s.replace('</body>', script + '\\n</body>')
+else:
+    s += '\\n' + script + '\\n'
+
+open(p, 'w', encoding='utf-8').write(s)
+print(f'::set-output name=rev::{n:03d}')
+PY
+
+      - name: Commit and Push
+        run: |
+          git config user.name "tedit-bot"
+          git config user.email "tedit-bot@example.com"
+          git add tedit.hta.txt
+          git commit -m "chore: bump revision to r${{ steps.bump.outputs.rev }}"
+          git push
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tedit_r${{ steps.bump.outputs.rev }}.hta.txt
+          path: tedit.hta.txt
+
