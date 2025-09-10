@@ -1,0 +1,488 @@
+<!-- Revision:013 -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=11">
+<title>Vi-like Text Editor "tedit" v0.3.3 (paste+help)</title>
+
+<hta:application
+  id="app"
+  applicationname="tedit"
+  border="thin"
+  caption="yes"
+  sysmenu="yes"
+  singleinstance="yes"
+  scroll="no"
+/>
+
+<style>
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: #1e1f22;
+    color: #ddd;
+    font-family: Consolas, "Courier New", monospace;
+  }
+  #toolbar {
+    height: 32px; line-height: 32px;
+    padding: 0 8px;
+    background: #2b2d31;
+    border-bottom: 1px solid #3b3d42;
+    font-size: 12px;
+    user-select: none;
+    display: flex; align-items: center;
+    position: relative; z-index: 2;
+  }
+  #mode { font-weight: bold; margin-right: 12px; }
+  #hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #pos  { margin-left: auto; }
+
+  #pane { position: relative; height: calc(100% - 32px); }
+
+  /* 行番号ガター */
+  #gutter {
+    position: absolute; top: 0; bottom: 0; left: 0;
+    width: 72px; background: #1b1c1f; border-right: 1px solid #3b3d42;
+    color: #c0c0c0; text-align: right; padding-right: 8px; box-sizing: border-box;
+    font-size: 21px; line-height: 1.6; pointer-events: none; overflow: hidden;
+  }
+  #gutter .ln { height: 1.6em; }
+
+  /* 本文 */
+  #editor {
+    position: absolute; top: 0; bottom: 0; right: 0; left: 0;
+    width: 100%; height: 100%;
+    box-sizing: border-box; padding: 10px; padding-left: 82px; /* number=on */
+    background: #1e1f22; color: #ddd; border: none; outline: none; resize: none;
+    font-size: 21px; line-height: 1.6; caret-color: #fff;
+  }
+
+  /* コマンドバー（:） */
+  #cmdbar {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    height: 28px; background: #2b2d31; border-top: 1px solid #3b3d42;
+    display: none; align-items: center; padding: 0 6px; box-sizing: border-box; z-index: 3;
+  }
+  #cmdprefix { color: #8ab4f8; margin-right: 4px; }
+  #cmdline {
+    flex: 1; height: 20px; background: #1e1f22; color: #ddd;
+    border: 1px solid #3b3d42; outline: none; padding: 0 6px; font-family: inherit; font-size: 12px;
+  }
+
+  /* ヘルプオーバーレイ */
+  #help {
+    position: absolute; left: 5%; right: 5%; top: 8%; bottom: 8%;
+    border: 1px solid #3b3d42; background: rgba(30,31,34,0.98);
+    display: none; z-index: 4; box-shadow: 0 8px 24px rgba(0,0,0,.4);
+    padding: 16px; overflow: auto; font-size: 14px; line-height: 1.6;
+  }
+  #help h2 { margin: 0 0 8px; font-size: 16px; }
+  #help kbd {
+    background: #444; color: #fff; padding: 1px 4px; border-radius: 3px; font-size: 12px;
+  }
+  #help pre { background:#15161a; padding:8px; overflow:auto; }
+
+  /* ちょいメッセージ（右下トースト） */
+  #msg {
+    position: absolute; right: 12px; bottom: 40px; z-index: 5;
+    background: #2b2d31; border: 1px solid #3b3d42; color: #ddd;
+    padding: 6px 10px; border-radius: 4px; font-size: 12px; display: none;
+  }
+</style>
+</head>
+<body>
+  <div id="toolbar">
+    <span id="mode">[NORMAL]</span>
+    <span id="hint">
+      移動: <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> / <kbd>w</kbd>/<kbd>b</kbd> /
+      行: <kbd>^</kbd>/<kbd>0</kbd>/<kbd>$</kbd> / 段落: <kbd>{</kbd>/<kbd>}</kbd> /
+      挿入: <kbd>i</kbd> / VISUAL: <kbd>v</kbd> / 取消: <kbd>Esc</kbd> /
+      Emacs風: <kbd>Ctrl+P/N/F/B</kbd> / ヘルプ: <kbd>F1</kbd> or <kbd>:help</kbd>
+    </span>
+    <span id="pos">Ln 1, Col 1</span>
+  </div>
+
+  <div id="pane">
+    <div id="gutter"></div>
+    <textarea id="editor" spellcheck="false" wrap="off"
+      placeholder="ここにテキストを入力…&#10;NORMALでは h j k l / w b / ^ などで移動。&#10;i で INSERT、Esc で NORMAL。&#10;:set number / :set nonumber / :help が使えます。"></textarea>
+  </div>
+
+  <!-- コマンドバー -->
+  <div id="cmdbar">
+    <span id="cmdprefix">:</span>
+    <input id="cmdline" type="text" />
+  </div>
+
+  <!-- ヘルプ（最小の“使えるコマンド一覧”） -->
+  <div id="help">
+    <h2>使えるコマンド（最小）</h2>
+    <p>
+      <strong>モード</strong>： <kbd>i</kbd> INSERT / <kbd>v</kbd> VISUAL / <kbd>Esc</kbd> NORMAL<br>
+      <strong>移動</strong>： <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd>、<kbd>w</kbd>/<kbd>b</kbd>、<kbd>^</kbd>/<kbd>0</kbd>/<kbd>$</kbd>、<kbd>{</kbd>/<kbd>}</kbd><br>
+      <strong>Emacs風</strong>： <kbd>Ctrl+P</kbd>/<kbd>N</kbd>/<kbd>F</kbd>/<kbd>B</kbd><br>
+      <strong>行番号</strong>： <code>:set number</code> / <code>:set nonumber</code><br>
+      <strong>ヘルプ</strong>： <kbd>F1</kbd> or <code>:help</code><br>
+      <strong>ペースト</strong>：INSERT で <kbd>Ctrl+V</kbd>（改行は LF に正規化）／NORMAL では貼り付け不可
+    </p>
+    <hr>
+    <p>今後追加予定（v1）：<br>
+      編集：<code>i a o O</code>、<code>x</code>、<code>dd</code>、<code>d{motion}</code>、<code>c{motion}</code>、<code>cc</code>、<code>yy</code>、<code>y{motion}</code>、<code>p/P</code>、<code>.</code>、カウント<br>
+      Ex：<code>:w</code> <code>:q</code> <code>:wq</code> <code>:q!</code> <code>ZZ</code>（UTF-8 / LF）<br>
+      クリップボード：<code>:set clipboard=os|internal</code>
+    </p>
+    <p style="text-align:right"><button onclick="hideHelp()">閉じる (Esc)</button></p>
+  </div>
+
+  <div id="msg"></div>
+
+<script>
+// ====== オプション（:set 相当） ======
+var OPT = {
+  number: true,          // 行番号
+  fileformat: 'unix',    // v1は LF 固定 ('unix')。将来 'dos' なら CRLF 正規化へ
+  clipboard: 'internal'  // 'internal' or 'os'（y/d 実装時に反映）
+};
+
+// ====== 基本ユーティリティ ======
+function getCaret(editor){ if (typeof editor.selectionStart === 'number') return editor.selectionStart;
+  var r = document.selection ? document.selection.createRange() : null;
+  if (!r || r.parentElement() !== editor) return 0;
+  var d = r.duplicate(); d.moveToElementText(editor); d.setEndPoint('EndToEnd', r); return d.text.length; }
+function setCaret(editor,pos){ pos=Math.max(0,Math.min(editor.value.length,pos));
+  if (editor.setSelectionRange){ editor.setSelectionRange(pos,pos); return; }
+  var r=editor.createTextRange(); r.collapse(true); r.move('character',pos); r.select(); }
+function setSelection(editor,a,b){ var s=Math.max(0,Math.min(a,b)), e=Math.max(0,Math.max(a,b));
+  if (editor.setSelectionRange){ editor.setSelectionRange(s,e); return; }
+  var r=editor.createTextRange(); r.collapse(true); r.moveStart('character',s); r.moveEnd('character',e-s); r.select(); }
+function lineStartIndex(text,pos){ return text.lastIndexOf('\n', Math.max(0,pos-1)) + 1; }
+function lineEndIndex(text,pos){ var i=text.indexOf('\n', pos); return (i===-1)?text.length:i; }
+function getLineCol(text,pos){ var s=lineStartIndex(text,pos); return { line: text.slice(0,pos).split('\n').length, col: pos - s + 1 }; }
+function getLineHeightPx(editor){ var cs = window.getComputedStyle?getComputedStyle(editor):editor.currentStyle;
+  var lh=parseFloat(cs.lineHeight); if(!lh||isNaN(lh)){ var fs=parseFloat(cs.fontSize)||21; lh=Math.round(fs*1.6); } return lh; }
+function isSpace(ch){ return ch===' '||ch==='\t'||ch==='\u3000'; }
+function firstNonBlankPos(text,pos){ var s=lineStartIndex(text,pos), e=lineEndIndex(text,pos), i=s; while(i<e && isSpace(text[i])) i++; return i; }
+function wordLeftPos(text,pos){ if(pos<=0) return 0; var i=pos-1;
+  while(i>=0 && (text[i]===' '||text[i]==='\t'||text[i]==='\u3000'||text[i]==='\n')) i--;
+  while(i>=0 && !(text[i]===' '||text[i]==='\t'||text[i]==='\u3000'||text[i]==='\n')) i--;
+  return Math.max(0,i+1); }
+function wordRightPos(text,pos){ var n=text.length,i=pos;
+  while(i<n && (text[i]===' '||text[i]==='\t'||text[i]==='\u3000'||text[i]==='\n')) i++;
+  while(i<n && !(text[i]===' '||text[i]==='\t'||text[i]==='\u3000'||text[i]==='\n')) i++;
+  while(i<n && (text[i]===' '||text[i]==='\t'||text[i]==='\u3000'||text[i]==='\n')) i++;
+  return i; }
+function posUp(text,pos,lines){ lines=lines||1; var start=lineStartIndex(text,pos), col=pos-start, target=pos;
+  for(var n=0;n<lines;n++){ var prevEnd=start-1; if(prevEnd<0) break; var prevStart=lineStartIndex(text,prevEnd);
+    var prevLen=prevEnd-prevStart; target=prevStart + Math.min(col, prevLen); start=prevStart; } return target; }
+function posDown(text,pos,lines){ lines=lines||1; var start=lineStartIndex(text,pos), col=pos-start, target=pos;
+  var nextStart=lineEndIndex(text,pos)+1; for(var n=0;n<lines;n++){
+    if(nextStart<=0||nextStart>text.length) break; var nextEnd=lineEndIndex(text,nextStart);
+    var nextLen=nextEnd-nextStart; target=nextStart + Math.min(col, nextLen);
+    var afterNext=nextEnd+1; if(afterNext<=text.length) nextStart=afterNext; else break; } return target; }
+// 段落（空行区切り）
+function isLineBlank(text, lineStart){ var end=lineEndIndex(text,lineStart); var s=text.slice(lineStart,end); return s.replace(/[ \t\u3000]/g,'').length===0; }
+function paragraphPrev(text,pos){ var curStart=lineStartIndex(text,pos); var j=curStart-1;
+  while(j>=0){ var ls=lineStartIndex(text,j); if(isLineBlank(text,ls)){ var nextStart=lineEndIndex(text,ls)+1; return firstNonBlankPos(text, Math.min(nextStart,text.length)); } j=ls-1; }
+  return firstNonBlankPos(text,0); }
+function paragraphNext(text,pos){ var i=lineEndIndex(text,pos)+1;
+  while(i<=text.length){ if(i>=text.length){ var lastStart=text.lastIndexOf('\n')+1; return firstNonBlankPos(text,lastStart); }
+    var ls=i, le=lineEndIndex(text,ls); if(isLineBlank(text,ls)){ var k=le+1; while(k<=text.length && isLineBlank(text,k)) k=lineEndIndex(text,k)+1;
+      return firstNonBlankPos(text, Math.min(k,text.length)); } i=le+1; } return pos; }
+
+// ====== モード管理 ======
+var MODE_NORMAL='NORMAL', MODE_INSERT='INSERT', MODE_VISUAL='VISUAL';
+var mode = MODE_NORMAL, anchorPos=null;
+
+// ====== ステータス・メッセージ・ヘルプ ======
+function updateStatus(editor){
+  var start=editor.selectionStart!=null?editor.selectionStart:getCaret(editor);
+  var end=editor.selectionEnd!=null?editor.selectionEnd:start;
+  var caret=end; var lc=getLineCol(editor.value,caret); var sel=Math.abs(end-start);
+  var info='Ln '+lc.line+', Col '+lc.col; if(sel>0) info+=' (Sel '+sel+')';
+  document.getElementById('pos').innerText=info;
+}
+function showMsg(text, ms){ var div=document.getElementById('msg'); div.innerText=text; div.style.display='block';
+  clearTimeout(showMsg._t); showMsg._t=setTimeout(function(){ div.style.display='none'; }, ms||1200); }
+function showHelp(){ document.getElementById('help').style.display='block'; }
+function hideHelp(){ document.getElementById('help').style.display='none'; }
+function toggleHelp(){ var h=document.getElementById('help'); h.style.display = (h.style.display==='block'?'none':'block'); }
+
+function setMode(newMode, editor){
+  mode=newMode; document.getElementById('mode').innerText='['+mode+']';
+  if(mode!==MODE_VISUAL){
+    anchorPos=null;
+    if(editor && typeof editor.selectionStart==='number' && editor.selectionStart!==editor.selectionEnd){
+      var end=editor.selectionEnd; setCaret(editor,end);
+    }
+  }else{
+    anchorPos=getCaret(editor); setSelection(editor,anchorPos,anchorPos);
+  }
+  updateStatus(editor); ensureScrolloff(editor);
+}
+
+// ====== ガター ======
+function updateGutter() {
+  var gutter = document.getElementById('gutter');
+  var editor = document.getElementById('editor');
+  if (!OPT.number) { gutter.style.display='none'; editor.style.paddingLeft='10px'; return; }
+  gutter.style.display='block'; editor.style.paddingLeft='82px';
+  var text=editor.value;
+  var total = text.length===0 ? 1 : text.split('\n').length;
+  var lh = getLineHeightPx(editor);
+  var startLine = Math.floor(editor.scrollTop / lh);
+  var visible = Math.ceil(editor.clientHeight / lh) + 1;
+  var endLine = Math.min(total, startLine + visible);
+  var html = [];
+  for (var ln = startLine + 1; ln <= endLine; ln++) html.push('<div class="ln">'+ln+'</div>');
+  gutter.innerHTML = html.join('');
+  var offset = -(editor.scrollTop % lh);
+  gutter.style.transform = 'translateY(' + offset + 'px)';
+}
+
+
+// ====== scrolloff（表示端からの余白スクロール） ======
+function ensureScrolloff(editor){
+  try {
+    var lh = getLineHeightPx(editor);
+    if(!lh || !isFinite(lh) || lh<=0) return;
+    var text = editor.value;
+    var total = (text.length===0) ? 1 : text.split(/\n/).length;
+    var pos = (typeof editor.selectionEnd===number) ? editor.selectionEnd : getCaret(editor);
+    var cursorLine = text.slice(0,pos).split(/\n/).length;
+    var firstVisible = Math.floor(editor.scrollTop / lh) + 1;
+    var visibleLines = Math.max(1, Math.floor(editor.clientHeight / lh));
+    var lastVisible = firstVisible + visibleLines - 1;
+    var scrolloff = 3;
+    var targetTop = editor.scrollTop;
+    // 上方向
+    if (cursorLine - firstVisible < scrolloff && firstVisible > 1) {
+      var newFirst = Math.max(1, cursorLine - scrolloff);
+      targetTop = (newFirst - 1) * lh;
+    }
+    // 下方向
+    else if (lastVisible - cursorLine < scrolloff && lastVisible < total) {
+      var newFirst = Math.max(1, cursorLine + scrolloff - visibleLines);
+      targetTop = (newFirst - 1) * lh;
+    }
+    if (Math.abs(targetTop - editor.scrollTop) >= 1) editor.scrollTop = targetTop;
+  } catch(_) {}
+}
+
+// ====== コマンドバー ======
+function openCmdBar(){ var bar=document.getElementById('cmdbar'); var inp=document.getElementById('cmdline'); bar.style.display='flex'; inp.value=''; inp.focus(); }
+function closeCmdBar(){ var bar=document.getElementById('cmdbar'); var inp=document.getElementById('cmdline'); bar.style.display='none'; inp.blur(); setMode(MODE_NORMAL, document.getElementById('editor')); }
+function runCommand(cmd){
+  var s=(cmd||'').trim();
+  if(s===''){ closeCmdBar(); return; }
+
+  // help
+  if (/^(help|\?)$/i.test(s)) { closeCmdBar(); showHelp(); return; }
+
+  // set number / nonumber / clipboard
+  var m = s.match(/^set\s+(.+)$/i);
+  if (m) {
+    var arg = m[1].trim().toLowerCase();
+    if (arg==='number' || arg==='nu') { OPT.number=true; updateGutter(); closeCmdBar(); return; }
+    if (arg==='nonumber' || arg==='nonu') { OPT.number=false; updateGutter(); closeCmdBar(); return; }
+    if (arg==='clipboard=os') { OPT.clipboard='os'; showMsg('clipboard=os', 1200); closeCmdBar(); return; }
+    if (arg==='clipboard=internal') { OPT.clipboard='internal'; showMsg('clipboard=internal', 1200); closeCmdBar(); return; }
+    showMsg('unknown option: ' + arg, 1400); closeCmdBar(); return;
+  }
+
+  // :e / :edit (UTF-8対応)
+  if (/^e(dit)?\\s+.+/i.test(s)) {
+    try {
+      var path = s.replace(/^e(dit)?\\s+/i, "").trim();
+      var fso = new ActiveXObject("Scripting.FileSystemObject");
+      if (fso.FileExists(path)) {
+        var stream = new ActiveXObject("ADODB.Stream");
+        stream.Type = 2; // text
+        stream.Charset = "UTF-8";
+        stream.Open();
+        stream.LoadFromFile(path);
+        var content = stream.ReadText();
+        stream.Close();
+        editor.value = content;
+        showMsg("Loaded: " + path, 1500);
+      } else {
+        showMsg("File not found: " + path, 2000);
+      }
+    } catch(e) {
+      showMsg("Error loading file", 2000);
+    }
+    closeCmdBar();
+    return;
+  }
+
+  // :e / :edit (UTF-8対応)
+  if (/^e(dit)?\s+.+/i.test(s)) {
+    try {
+      var path = s.replace(/^e(dit)?\s+/i, "").trim();
+      var fso = new ActiveXObject("Scripting.FileSystemObject");
+      if (fso.FileExists(path)) {
+        var stream = new ActiveXObject("ADODB.Stream");
+        stream.Type = 2; // text
+        stream.Charset = "UTF-8";
+        stream.Open();
+        stream.LoadFromFile(path);
+        var content = stream.ReadText();
+        stream.Close();
+        editor.value = content;
+        showMsg("Loaded: " + path, 1500);
+      } else {
+        showMsg("File not found: " + path, 2000);
+      }
+    } catch(e) {
+      showMsg("Error loading file", 2000);
+    }
+    closeCmdBar();
+    return;
+  }
+
+  // （:w / :q などは v0.4 で実装）
+  // open file
+
+  // quit
+  if (/^q!?$/i.test(s)) {
+    closeCmdBar();
+    window.close();
+    return;
+  }
+
+  showMsg('未実装: ' + s, 1200);
+  closeCmdBar();
+}
+
+// ====== 入力処理 ======
+function composing(e){ return e && (e.isComposing || e.keyCode===229); }
+function handleMove(editor, target, selecting){
+  if(mode===MODE_VISUAL||selecting){ if(anchorPos==null) anchorPos=getCaret(editor); setSelection(editor,anchorPos,target); }
+  else { setCaret(editor,target); }
+  updateStatus(editor); ensureScrolloff(editor);
+}
+function tryEmacsCtrl(editor,e){
+  if(!e.ctrlKey||e.altKey) return false;
+  var k=(typeof e.key==='string'?e.key.toLowerCase():String.fromCharCode(e.keyCode).toLowerCase());
+  var text=editor.value,pos=getCaret(editor),handled=true,target=pos;
+  if(k==='p') target=posUp(text,pos,1);
+  else if(k==='n') target=posDown(text,pos,1);
+  else if(k==='f') target=Math.min(text.length,pos+1);
+  else if(k==='b') target=Math.max(0,pos-1);
+  else handled=false;
+  if(handled){ e.preventDefault(); e.stopPropagation(); handleMove(editor,target,mode===MODE_VISUAL); return true; }
+  return false;
+}
+
+// ====== INIT ======
+(function init(){
+  var editor=document.getElementById('editor');
+  editor.value =
+    '# Vi-like Text Editor "tedit" v0.3.3 (paste+help)\n' +
+    '行番号: :set number / :set nonumber（起動時は number=on）。wrap=off 前提。\n' +
+    '移動: h j k l / w b / ^（先頭非空白）/ 0 / $ / 段落 { }\n' +
+    'モード: i → INSERT, v → VISUAL, Esc → NORMAL\n' +
+    'Emacs代替: Ctrl+P/N/F/B（全モード）\n' +
+    'ペースト: INSERTでCtrl+V/Shift+Ins/右クリック可（改行はLFに正規化）。NORMALでは不可。\n' +
+    'ヘルプ: F1 または :help\n';
+
+  editor.focus(); setMode(MODE_NORMAL,editor);
+  updateStatus(editor); ensureScrolloff(editor); updateGutter();
+
+  // --- キー処理（エディタ） ---
+  editor.addEventListener('keydown', function(e){
+    if(document.getElementById('cmdbar').style.display==='flex') return;
+    if(tryEmacsCtrl(editor,e)) return;
+
+    var key = (typeof e.key==='string')?e.key:String.fromCharCode(e.keyCode);
+    var lower = key.toLowerCase();
+    var text=editor.value, pos=getCaret(editor);
+
+    if(mode===MODE_INSERT){
+      if(composing(e)) return;
+      if(key==='Escape'||e.keyCode===27){ e.preventDefault(); e.stopPropagation(); setMode(MODE_NORMAL,editor); return; }
+      return; // 通常入力は素通し
+    }
+
+    // NORMAL / VISUAL
+    if(composing(e)){ e.preventDefault(); return; }
+    e.preventDefault(); e.stopPropagation();
+
+    // モード切替・ヘルプ・Ex
+    if(lower==='i'){ setMode(MODE_INSERT,editor); return; }
+    if(lower==='v'){ setMode(mode===MODE_VISUAL?MODE_NORMAL:MODE_VISUAL,editor); return; }
+    if(key==='Escape'||e.keyCode===27){ setMode(MODE_NORMAL,editor); return; }
+    if(key===':'){ openCmdBar(); return; }
+
+    // 移動（NORMAL/ VISUAL）
+    var target=pos, selecting=(mode===MODE_VISUAL);
+    switch(lower){
+      case 'h': target=Math.max(0,pos-1); break;
+      case 'l': target=Math.min(text.length,pos+1); break;
+      case 'k': target=posUp(text,pos,1); break;
+      case 'j': target=posDown(text,pos,1); break;
+      case 'w': target=wordRightPos(text,pos); break;
+      case 'b': target=wordLeftPos(text,pos); break;
+      case '0': target=lineStartIndex(text,pos); break;
+      case '$': target=lineEndIndex(text,pos); break;
+      case '^': target=firstNonBlankPos(text,pos); break;
+      case '{': target=paragraphPrev(text,pos); break;
+      case '}': target=paragraphNext(text,pos); break;
+      default:
+        // NORMAL での OS ペースト・コンテキストメニュー抑止（paste イベントでも弾くが、ヒントを出す）
+        if ((e.ctrlKey && !e.altKey && lower==='v') || (e.shiftKey && e.key==='Insert')) {
+          showMsg('NORMALでは貼り付けできません（i で INSERT へ）', 1400);
+        }
+        return;
+    }
+    handleMove(editor,target,selecting);
+  });
+
+  // スクロール/入力/リサイズ
+  editor.addEventListener('scroll', function(){ updateGutter(); });
+  editor.addEventListener('input',  function(){ updateStatus(editor); ensureScrolloff(editor); updateGutter(); });
+  editor.addEventListener('click',  function(){ updateStatus(editor); ensureScrolloff(editor); if(mode!==MODE_VISUAL) anchorPos=null; });
+  window.addEventListener('resize', function(){ updateGutter(); });
+
+  // ペースト：INSERT 以外は拒否。INSERT では LF 正規化。
+  editor.addEventListener('paste', function(e){
+    // NORMAL/VISUAL では完全拒否
+    if (mode !== MODE_INSERT) {
+      e.preventDefault(); e.stopPropagation();
+      showMsg('NORMALでは貼り付けできません（i で INSERT へ）', 1200);
+      return;
+    }
+    // INSERT：クリップボードからテキスト取得して LF 正規化
+    var t = (window.clipboardData && window.clipboardData.getData('Text'));
+    if (typeof t === 'string') {
+      e.preventDefault(); e.stopPropagation();
+      // v1 は LF 固定。将来は OPT.fileformat で 'dos' 時に \r\n に正規化。
+      t = t.replace(/\r\n?/g, '\n');
+      var s = editor.selectionStart, en = editor.selectionEnd, v = editor.value;
+      editor.value = v.slice(0, s) + t + v.slice(en);
+      var newPos = s + t.length;
+      if (editor.setSelectionRange) editor.setSelectionRange(newPos, newPos);
+      updateStatus(editor); ensureScrolloff(editor); updateGutter();
+    }
+    // それ以外（安全のため既定も許可しない）
+  });
+
+  // F1 でヘルプ
+  window.addEventListener('keydown', function(e){
+    if (e.key === 'F1') { e.preventDefault(); toggleHelp(); }
+    // Help表示中の Esc
+    if (e.key === 'Escape' && document.getElementById('help').style.display==='block') {
+      e.preventDefault(); hideHelp();
+    }
+  });
+
+  // コマンドバー内キー
+  var cmd=document.getElementById('cmdline');
+  cmd.addEventListener('keydown', function(e){
+    if(e.key==='Escape'||e.keyCode===27){ e.preventDefault(); e.stopPropagation(); closeCmdBar(); return; }
+    if(e.key==='Enter'||e.keyCode===13){ e.preventDefault(); e.stopPropagation(); runCommand(cmd.value||''); return; }
+  });
+})();
+</script>
+</body>
+</html>
