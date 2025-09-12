@@ -209,20 +209,33 @@ var OPT = {
   clipboard: 'internal'  // 'internal' or 'os'（y/d 実装時に反映）
 };
 
-var modified = false; // 編集フラグ（Vim風にリネーム）
-// ====== Undo (最小実装) ======
+var modifiedCount = 0;           // 0 = クリーン (>0 = 変更あり)
+var baselineText = '';           // 保存/読込直後の内容
 var UNDO_MAX = 200;
 var undoStack = [];
 var insertSessionActive = false;
 
+function updateModifiedFlag(){
+  // 互換用 (古いコードで参照している可能性あり)
+  window.modified = (modifiedCount > 0);
+}
+
+function setBaseline(text){
+  baselineText = text;
+  modifiedCount = 0;
+  updateModifiedFlag();
+}
+
 function pushUndo(reason){
   var ed = document.getElementById('editor');
   if(!ed) return;
+  // 内容同一ならスキップ
   if (undoStack.length && undoStack[undoStack.length-1].text === ed.value) return;
   undoStack.push({
     text: ed.value,
     pos: getCaret(ed),
-    reason: reason||''
+    reason: reason||'',
+    mcount: modifiedCount
   });
   if (undoStack.length > UNDO_MAX) undoStack.shift();
 }
@@ -236,7 +249,11 @@ function doUndo(){
   var snap = undoStack.pop();
   ed.value = snap.text;
   setCaret(ed, Math.min(snap.pos, ed.value.length));
-  modified = true;
+  // 過去状態の modifiedCount を復元
+  modifiedCount = snap.mcount || 0;
+  // ベースラインと一致しているなら 0 に強制（安全）
+  if (ed.value === baselineText) modifiedCount = 0;
+  updateModifiedFlag();
   insertSessionActive = false;
   if (typeof updateStatus==='function') updateStatus(ed);
   if (typeof ensureScrolloff==='function') ensureScrolloff(ed);
@@ -572,7 +589,7 @@ function deleteRange(editor, a, b, opts){
   setRegister(regText, isLinewise);
   editor.value = v.slice(0, s) + v.slice(e);
   setCaret(editor, s);
-  modified = true;
+  modifiedCount++; updateModifiedFlag();
   updateStatus(editor);
   ensureScrolloff(editor);
   updateGutter();
@@ -606,10 +623,11 @@ function getRegister(){
 
 // 貼り付け実装
 function pasteInsert(editor, insPos, t){
+  pushUndo('paste');
   var v = editor.value;
   editor.value = v.slice(0, insPos) + t + v.slice(insPos);
   setCaret(editor, insPos + t.length);
-  modified = true;
+  modifiedCount++; updateModifiedFlag();
   updateStatus(editor); ensureScrolloff(editor); updateGutter();
   // 貼り付けでチェーンを切る
   lastCmd = 'other';
@@ -664,7 +682,7 @@ function updateStatus(editor){
   document.getElementById('hint').innerText =
     '移動: h j k l / w b / ^ 0 $ / { } | 挿入: i | VISUAL: v | 取消: Esc | Emacs: Ctrl+P/N/F/B | ヘルプ: F1/:help';
   var filename = window._currentFile || '[No Name]';
-  var modmark = modified ? '[+]' : '';
+  var modmark = (modifiedCount > 0) ? '[+]' : '';
   document.getElementById('filename').innerText = filename;
   document.getElementById('modmark').innerText = modmark;
   document.getElementById('mode').innerText = '['+mode+']';
@@ -911,7 +929,7 @@ function runCommand(cmd){
         window._currentFile = path; // ファイル名を記憶
         showMsg("Loaded: " + path, 1500);
         editor.focus(); setCaret(editor, 0);
-        modified = false; // ファイル読込時は未編集状態に
+        setBaseline(content); // ファイル読込時は未編集状態に
       } else {
         showMsg("File not found: " + path, 2000);
       }
@@ -934,7 +952,7 @@ function runCommand(cmd){
   }
   // quit（警告あり）
   if (/^q$/i.test(s)) {
-    if (modified) {
+    if (modifiedCount > 0) {
       showMsg('編集内容が保存されていません', true);
       return;
     }
@@ -1039,6 +1057,7 @@ function tryEmacsCtrl(editor,e){
   setMode(MODE_NORMAL,editor);
   setCaret(editor, 0);
   pushUndo('initial');
+  setBaseline(editor.value);
   updateStatus(editor); ensureScrolloff(editor); updateGutter();
   // 行番号ガターの初期表示
   updateGutter();
@@ -1425,7 +1444,7 @@ function tryEmacsCtrl(editor,e){
   editor.addEventListener('scroll', function(){ updateGutter(); });
   editor.addEventListener('input',  function(){
     updateStatus(editor); ensureScrolloff(editor); updateGutter();
-    modified = true; // 入力時に編集フラグON
+    modifiedCount++; updateModifiedFlag();
   });
   editor.addEventListener('click',  function(){ updateStatus(editor); ensureScrolloff(editor); if(mode!==MODE_VISUAL) anchorPos=null; });
   window.addEventListener('resize', function(){ updateGutter(); });
