@@ -863,6 +863,37 @@ function openCmdBar(){
   inp.value='';
   inp.focus();
 }
+
+// （追加）コマンドライン ESC 取消バインド
+function bindCmdlineEsc(){
+  var cmd = document.getElementById('cmdline');
+  if(!cmd || cmd._escBound) return;
+  cmd.addEventListener('keydown', function(e){
+    if(e.key === 'Escape'){
+      // 補完一覧があればリセット
+      if (typeof resetCmdCompl === 'function'){
+        try{ resetCmdCompl(); }catch(_){}
+      }
+      closeCmdBar();
+      var ed = document.getElementById('editor');
+      if(ed) ed.focus();
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+  cmd._escBound = true;
+}
+
+// openCmdBar 呼出後に確実に ESC バインド（init 末尾 or openCmdBar 内後段）
+(function(){
+  var _origOpen = openCmdBar;
+  openCmdBar = function(){
+    _origOpen.apply(this, arguments);
+    // 表示直後にバインド（1回だけ）
+    setTimeout(bindCmdlineEsc, 0);
+  };
+})();
+
 function closeCmdBar(){
   var inp=document.getElementById('cmdline');
   inp.blur();
@@ -872,6 +903,16 @@ function closeCmdBar(){
   hideMsg();
   document.getElementById('editor').focus(); 
 }
+
+// 追加: ESC 強制終了ヘルパ（再オープン抑止用統一ポイント）
+function forceCloseCmdLine(){
+  var cl = document.getElementById('cmdline');
+  if (!cl || cl.style.display !== 'inline-block') return;
+  try { resetCmdCompl(); } catch(_){}
+  closeCmdBar();
+}
+
+// コマンド実行
 function runCommand(cmd){
   var s = (cmd || '').trim();
   if (s.charAt(0) === ':') s = s.slice(1);   // ←追加: 先頭コロン除去
@@ -1543,7 +1584,7 @@ function tryEmacsCtrl(editor,e){
 
      
 
-     
+
 
       case '}': {
         var p = getActivePosForDir(editor,'down');
@@ -1634,22 +1675,21 @@ function tryEmacsCtrl(editor,e){
     }
   });
 
-  // コマンドバー内キー
+  // cmdline 基本ハンドラ内 Esc 判定を拡張
   var cmd=document.getElementById('cmdline');
   cmd.addEventListener('keydown', function(e){
     var k = e.key;
+    var kc = e.keyCode;
     // Enter / Esc は先に処理
-    if (k === 'Escape'){
-      // Vim 同様: コマンドライン入力自体をキャンセルして NORMAL へ戻る
+    if (kc === 27 || k === 'Escape' || k === 'Esc'){
       e.preventDefault(); e.stopPropagation();
-      resetCmdCompl();          // 候補リスト状態クリア
-      _skipComplRecalc = true;  // 再計算抑止（安全策）
-      closeCmdBar();            // コマンドバー閉じ & editor にフォーカス
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      resetCmdCompl();
+      _skipComplRecalc = true;
+      closeCmdBar();
       return;
     }
-    if (k === 'Enter'){
-      // 補完候補がアクティブで現在の表示選択を確定したい場合は Tab/Enter 2 回で確定できるよう、
-      // 1回目 Enter でそのまま実行（Vim と同様）→ commit は不要
+    if (kc === 13 || k === 'Enter'){
       e.preventDefault(); e.stopPropagation();
       hideMsg();
       runCommand(cmd.value||'');
@@ -1711,6 +1751,17 @@ function tryEmacsCtrl(editor,e){
 
   // cmdbar自体へのESC/コマンド切替
   document.getElementById('cmdbar').addEventListener('keydown', function(e){
+    // 追加: コマンドライン表示中は最優先で ESC 取消
+    if (e.key === 'Escape') {
+      var cmdEl = document.getElementById('cmdline');
+      if (cmdEl && cmdEl.style.display === 'inline-block') {
+        resetCmdCompl();
+        closeCmdBar();
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    }
     if (e.key === 'Escape' && showMsg._hold) {
       hideMsg();
       document.getElementById('editor').focus();
@@ -1935,6 +1986,119 @@ function tryEmacsCtrl(editor,e){
     // フォーカス外れたら閉じる
     resetCmdCompl();
   });
+
+  // === ESC で確実にコマンドラインを閉じるための再定義ブロック（競合排除） ===
+  // 既存の bindCmdlineEsc / cmdline keydown ハンドラの多重効果で「入力が消えるだけ」になる症状対策
+  (function reinforceCmdlineEsc(){
+    var cmd = document.getElementById('cmdline');
+    if(!cmd) return;
+
+    var parent = cmd.parentNode;
+    var clone = cmd.cloneNode(true);
+    parent.replaceChild(clone, cmd);
+    cmd = clone;
+
+    var _cmdJustClosed = false;
+    if (!openCmdBar._reinforced){
+      var _origOpenCmdBar = openCmdBar;
+      openCmdBar = function(){
+        if (_cmdJustClosed) return;
+        _origOpenCmdBar();
+      };
+      openCmdBar._reinforced = true;
+    }
+    function reallyClose(){
+      try{ resetCmdCompl(); }catch(_){}
+      closeCmdBar();
+      _cmdJustClosed = true;
+      setTimeout(function(){ _cmdJustClosed = false; }, 80);
+    }
+
+    // === ここから再実装: Esc + 補完キー操作を統合 ===
+    cmd.addEventListener('keydown', function(e){
+      var k  = e.key;
+      var kc = e.keyCode;
+
+      // Esc
+      if (kc === 27 || k === 'Escape' || k === 'Esc'){
+        e.preventDefault(); e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        reallyClose();
+        return;
+      }
+
+      // Enter
+      if (kc === 13 || k === 'Enter'){
+        e.preventDefault(); e.stopPropagation();
+        hideMsg();
+        runCommand(cmd.value||'');
+        return;
+      }
+
+      // Tab / Shift+Tab
+      if (kc === 9 || k === 'Tab'){
+        // 補完アクティブならサイクル
+        if (typeof cmdCompl !== 'undefined' && cmdCompl.active){
+          e.preventDefault(); e.stopPropagation();
+            if (e.shiftKey) cycleCmdCompl(-1);
+            else cycleCmdCompl(1);
+          return;
+        }
+        // 未アクティブ: パターンに合えば開始
+        var val = cmd.value;
+        if (/^:?(e!?)(\s+).*/i.test(val)){
+          e.preventDefault(); e.stopPropagation();
+          updateCmdCompletions();
+          if (!cmdCompl.active){
+            showMsg('候補なし', 900);
+          }
+          return;
+        }
+        // それ以外: 既定 Tab (フォーカス移動) を抑止して残る
+        e.preventDefault(); e.stopPropagation();
+        return;
+      }
+
+      // 補完アクティブ時の ↑/↓
+      if (typeof cmdCompl !== 'undefined' && cmdCompl.active){
+        if (k === 'ArrowDown' || k === 'Down'){
+          e.preventDefault(); e.stopPropagation();
+          cycleCmdCompl(1); return;
+        }
+        if (k === 'ArrowUp' || k === 'Up'){
+          e.preventDefault(); e.stopPropagation();
+          cycleCmdCompl(-1); return;
+        }
+        // Ctrl+→ で確定
+        if (
+          e.ctrlKey &&
+          (k === 'ArrowRight' || k === 'Right' || kc === 39)
+        ){
+          e.preventDefault(); e.stopPropagation();
+          commitCmdCompletion();
+          return;
+        }
+      }
+
+      // 文字入力後に補完状態を再評価（Esc 直後の 1 回は _skipComplRecalc で抑止可）
+      setTimeout(function(){
+        if (window._skipComplRecalc){
+          window._skipComplRecalc = false;
+          return;
+        }
+        updateCmdCompletions();
+      },0);
+    }, true); // capture で他より優先
+
+    // 失われた input / blur リスナーを再付与
+    cmd.addEventListener('input', function(){
+      updateCmdCompletions();
+    });
+    cmd.addEventListener('blur', function(){
+      // 閉じるまでは保持しない（フォーカス外れたら候補消去のみ）
+      resetCmdCompl();
+    });
+  })();
 })();
 </script>
 </body>
