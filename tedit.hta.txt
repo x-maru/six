@@ -915,7 +915,7 @@ function forceCloseCmdLine(){
 // コマンド実行
 function runCommand(cmd){
   var s = (cmd || '').trim();
-  if (s.charAt(0) === ':') s = s.slice(1);   // ←追加: 先頭コロン除去
+  if (s.charAt(0) === ':') s = s.slice(1);
   if (s === '') { closeCmdBar(); return; }
 
   if (/^u$/i.test(s)){
@@ -1022,70 +1022,82 @@ function runCommand(cmd){
     showMsg('unknown option: ' + arg, 1400); closeCmdBar(); return;
   }
 
-  // （削除）runCommand 内の重複した古い :e 読み込みブロック（"^e(dit)?\\s+.+", バックスラッシュ2つのもの）を丸ごと削除
-  // 例: if (/^e(dit)?\\s+.+/i.test(s)) { ... }  ← このブロック全体削除
-
-  // help
-  if (/^(help|\?)$/i.test(s)) { closeCmdBar(); showHelp(); return; }
-
-  // 数値のみ: 行番号へジャンプ（:99 など）
-  if (/^\d+$/.test(s)) {
-    var ln = parseInt(s,10);
-    var ed = document.getElementById('editor');
-    var t = ed.value;
-    var pos = lineFirstNonBlankByNumber(t, ln);
-    setCaret(ed, pos);
+  // === (3) :w / :w! / :w {path} ===
+  if (/^w!?(\s+.*)?$/i.test(s)){
+    var force = /!/.test(s.split(/\s+/)[0]); // 現状 force で上書き判定差は付けない（予約）
+    var arg = s.replace(/^w!?/i,'').trim();
+    var editor = document.getElementById('editor');
+    var fsoOk = true;
+    try { new ActiveXObject("Scripting.FileSystemObject"); } catch(_){ fsoOk=false; }
+    if (!fsoOk){
+      showMsg('Write not supported (ActiveX disabled)', 2000);
+      closeCmdBar();
+      return;
+    }
+    var path = '';
+    if (arg){
+      path = arg;
+      window._currentFile = path;
+    } else {
+      path = window._currentFile;
+    }
+    if (!path){
+      showMsg('No file name', 1500);
+      closeCmdBar();
+      return;
+    }
+    try{
+      writeFileUTF8(path, editor.value);
+      setBaseline(editor.value);
+      undoStack = [];
+      redoStack = [];
+      insertSessionActive = false;
+      pushUndo('initial'); // 保存後のクリーン状態を基点に
+      updateStatus(editor);
+      showMsg('Written: ' + path, 1400);
+    }catch(e){
+      showMsg('Write error: ' + path, 2000);
+    }
     closeCmdBar();
     return;
   }
 
-  if (/^debugscroll$/i.test(s)){
-    closeCmdBar();
-    var ed = document.getElementById('editor');
-    var lh = getLineHeightPx(ed);
-    var ch = ed.clientHeight;
-    var sh = ed.scrollHeight;
-    var STATUSBAR_H = 28;
-    var effH = ch - STATUSBAR_H;
-    var tl = totalLines(ed.value);
-    var pos = getCaret(ed);
-    var line = getLineCol(ed.value,pos).line;
-    var maxST = sh - ch; if (maxST < 0) maxST = 0;
-    showMsg('lh='+lh+' ch='+ch+' sh='+sh+' effH='+effH+' scrollTop='+ed.scrollTop+' maxST='+maxST+' line='+line+'/'+tl, true);
-    return;
-  }
-
-  // set number / nonumber / clipboard
-  var m = s.match(/^set\s+(.+)$/i);
-  if (m) {
-    var arg = m[1].trim().toLowerCase();
-    if (arg==='number' || arg==='nu') { OPT.number=true; updateGutter(); closeCmdBar(); return; }
-    if (arg==='nonumber' || arg==='nonu') { OPT.number=false; updateGutter(); closeCmdBar(); return; }
-    if (arg==='clipboard=os') { OPT.clipboard='os'; showMsg('clipboard=os', 1200); closeCmdBar(); return; }
-    if (arg==='clipboard=internal') { OPT.clipboard='internal'; showMsg('clipboard=internal', 1200); closeCmdBar(); return; }
-    showMsg('unknown option: ' + arg, 1400); closeCmdBar(); return;
-  }
-
-  // :e / :edit (UTF-8対応)
+  // === (1) :e / :edit （存在しない場合は新規） ===
   if (/^e(dit)?\s+.+/i.test(s)) {
     try {
       var path = s.replace(/^e(dit)?\s+/i, "").trim();
+      var editor = document.getElementById('editor');
       var fso = new ActiveXObject("Scripting.FileSystemObject");
       if (fso.FileExists(path)) {
         var stream = new ActiveXObject("ADODB.Stream");
-        stream.Type = 2; // text
+        stream.Type = 2;
         stream.Charset = "UTF-8";
         stream.Open();
         stream.LoadFromFile(path);
         var content = stream.ReadText();
         stream.Close();
         editor.value = content;
-        window._currentFile = path; // ファイル名を記憶
+        window._currentFile = path;
+        setCaret(editor, 0);
+        setBaseline(content);
+        undoStack = [];
+        redoStack = [];
+        insertSessionActive = false;
+        pushUndo('initial');
+        updateStatus(editor); ensureScrolloff(editor); updateGutter();
         showMsg("Loaded: " + path, 1500);
-        editor.focus(); setCaret(editor, 0);
-        setBaseline(content); // ファイル読込時は未編集状態に
       } else {
-        showMsg("File not found: " + path, 2000);
+        // 新規ファイルとして扱う
+        editor.value = '';
+        window._currentFile = path;
+        setCaret(editor, 0);
+        setBaseline('');
+        undoStack = [];
+        redoStack = [];
+        insertSessionActive = false;
+        pushUndo('initial');
+        updateStatus(editor); ensureScrolloff(editor); updateGutter();
+        showMsg("New file: " + path, 1500);
       }
     } catch(e) {
       showMsg("Error loading file", 2000);
@@ -1093,9 +1105,6 @@ function runCommand(cmd){
     closeCmdBar();
     return;
   }
-
-  // （:w / :q などは v0.4 で実装）
-  // open file
 
   // quit
   // 強制終了
@@ -1117,6 +1126,20 @@ function runCommand(cmd){
 
   showMsg('未実装: ' + s, 1200);
   closeCmdBar();
+}
+
+// === 追加: 保存ヘルパ (runCommand より前のグローバル領域に) ===
+function writeFileUTF8(path, content){
+  // LF 正規化（v1 では LF 固定）
+  content = content.replace(/\r\n?/g, '\n');
+  var st = new ActiveXObject("ADODB.Stream");
+  st.Type = 2;
+  st.Charset = "UTF-8";
+  st.Open();
+  st.WriteText(content);
+  st.Position = 0;
+  st.SaveToFile(path, 2 /*adSaveCreateOverWrite*/);
+  st.Close();
 }
 
 // ====== 入力処理 ======
