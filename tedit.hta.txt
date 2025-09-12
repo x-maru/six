@@ -209,27 +209,29 @@ var OPT = {
   clipboard: 'internal'  // 'internal' or 'os'（y/d 実装時に反映）
 };
 
+// （置換）Undo 定義ブロック（modifiedCount ～ doUndo まで）を Redo 対応版に差し替え
 var modifiedCount = 0;           // 0 = クリーン (>0 = 変更あり)
 var baselineText = '';           // 保存/読込直後の内容
 var UNDO_MAX = 200;
 var undoStack = [];
+var redoStack = [];              // ★追加
 var insertSessionActive = false;
 
 function updateModifiedFlag(){
-  // 互換用 (古いコードで参照している可能性あり)
   window.modified = (modifiedCount > 0);
 }
-
 function setBaseline(text){
   baselineText = text;
   modifiedCount = 0;
   updateModifiedFlag();
+  // ベースライン確定時は redo も破棄
+  redoStack = [];
+  // 既存 undoStack も初期化（呼び出し側で pushUndo('initial') する想定）
 }
 
 function pushUndo(reason){
   var ed = document.getElementById('editor');
   if(!ed) return;
-  // 内容同一ならスキップ
   if (undoStack.length && undoStack[undoStack.length-1].text === ed.value) return;
   undoStack.push({
     text: ed.value,
@@ -238,6 +240,8 @@ function pushUndo(reason){
     mcount: modifiedCount
   });
   if (undoStack.length > UNDO_MAX) undoStack.shift();
+  // 新しい編集開始で redo は失効
+  if (redoStack.length) redoStack = [];
 }
 
 function doUndo(){
@@ -246,12 +250,44 @@ function doUndo(){
     if (typeof showMsg === 'function') showMsg('No undo', 800);
     return;
   }
+  // 現在状態を redoStack に積む
+  redoStack.push({
+    text: ed.value,
+    pos: getCaret(ed),
+    mcount: modifiedCount
+  });
+  if (redoStack.length > UNDO_MAX) redoStack.shift();
+
   var snap = undoStack.pop();
   ed.value = snap.text;
   setCaret(ed, Math.min(snap.pos, ed.value.length));
-  // 過去状態の modifiedCount を復元
   modifiedCount = snap.mcount || 0;
-  // ベースラインと一致しているなら 0 に強制（安全）
+  if (ed.value === baselineText) modifiedCount = 0;
+  updateModifiedFlag();
+  insertSessionActive = false;
+  if (typeof updateStatus==='function') updateStatus(ed);
+  if (typeof ensureScrolloff==='function') ensureScrolloff(ed);
+  if (typeof updateGutter==='function') updateGutter();
+}
+
+function doRedo(){
+  var ed = document.getElementById('editor');
+  if(!ed || !redoStack.length){
+    if (typeof showMsg === 'function') showMsg('No redo', 800);
+    return;
+  }
+  // 現在を undoStack に積む（戻れるように）
+  undoStack.push({
+    text: ed.value,
+    pos: getCaret(ed),
+    mcount: modifiedCount
+  });
+  if (undoStack.length > UNDO_MAX) undoStack.shift();
+
+  var snap = redoStack.pop();
+  ed.value = snap.text;
+  setCaret(ed, Math.min(snap.pos, ed.value.length));
+  modifiedCount = snap.mcount || 0;
   if (ed.value === baselineText) modifiedCount = 0;
   updateModifiedFlag();
   insertSessionActive = false;
@@ -327,7 +363,7 @@ function lineFirstNonBlankByNumber(text, ln){
   return s;
 }
 
-// 行番号ライン範囲（linewise）削除ヘルパ : startLine, endLine を丸ごと削除
+// 行番号ライン範囲削除ヘルパ : startLine, endLine を丸ごと削除
 function deleteLineRange(editor, text, startLine, endLine){
   startLine = startLine|0; endLine = endLine|0;
   if (startLine < 1) startLine = 1;
@@ -846,6 +882,63 @@ function runCommand(cmd){
     return;
   }
 
+  if (/^re?do$/i.test(s)){  // :redo / :redo
+    closeCmdBar();
+    doRedo();
+    return;
+  }
+
+  // :e! / :e! {file}
+  if (/^e!/i.test(s)) {
+    // 構文: :e!            → 現在開いているファイルを強制再読込（未保存変更破棄）
+    //       :e! path/to/f  → 指定ファイルを強制読込（未保存変更破棄）
+    var tail = s.replace(/^e!/i,'').trim();
+    var path = tail || window._currentFile;
+    if (!path) {
+      closeCmdBar();               // 先に閉じて hideMsg を済ませる
+      showMsg('No file name', 1600);
+      return;
+    }
+    try {
+      var fso = new ActiveXObject("Scripting.FileSystemObject");
+      if (!fso.FileExists(path)) {
+        closeCmdBar();
+        showMsg("File not found: " + path, 2000);
+        return;
+      }
+      var stream = new ActiveXObject("ADODB.Stream");
+      stream.Type = 2;
+      stream.Charset = "UTF-8";
+      stream.Open();
+      stream.LoadFromFile(path);
+      var content = stream.ReadText();
+      stream.Close();
+
+      var ed = document.getElementById('editor');
+      ed.value = content;
+      window._currentFile = path;
+
+      // 先にカーソルを先頭へ移動してから baseline / undo を再構築
+      setCaret(ed, 0);
+
+      setBaseline(content);        // modifiedCount=0 にリセット
+      undoStack = [];
+      insertSessionActive = false;
+      pushUndo('initial');         // pos=0 を含む初期スナップショット（Undo でEOFへ飛ばない）
+
+      updateStatus(ed);
+      ensureScrolloff(ed);
+      updateGutter();
+
+      closeCmdBar();
+      showMsg("Reloaded: " + path, 1500);
+    } catch (e) {
+      closeCmdBar();
+      showMsg("Error reloading file", 2000);
+    }
+    return;
+  }
+
   // help
   if (/^(help|\?)$/i.test(s)) { closeCmdBar(); showHelp(); return; }
 
@@ -1028,6 +1121,11 @@ function tryEmacsCtrl(editor,e){
     var p = getActivePosForDir(editor,'left');
     target = Math.max(0, p-1);
     lastMotionDir='left';
+  }
+  else if (k === 'r'){ // Ctrl+R = redo
+    doRedo();
+    e.preventDefault(); e.stopPropagation();
+    return true;
   }
   else {
     handled = false;
