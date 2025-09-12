@@ -1919,53 +1919,57 @@ function tryEmacsCtrl(editor,e){
   function updateCmdCompletions(){
     var cmdEl = document.getElementById('cmdline');
     if(!cmdEl) return;
-    var val = cmdEl.value;
-    // 入力欄はコロン無し想定（: は prefix スパン表示）なので先頭の任意コロンは無視許容
-    var m = val.replace(/^:/,'').match(/^(e!?)(\s+)(.*)$/i);
-    if(!m){ resetCmdCompl(); return; }
-    var head = m[1] + m[2]; // "e " or "e! "
+
+    // 先頭コロンは無視許容（内部表現はコロン無し）
+    var raw = cmdEl.value.replace(/^:/,'');
+    var m = raw.match(/^(e!?)(\s+)(.*)$/i);
+    if(!m){
+      resetCmdCompl();
+      return;
+    }
+    var head  = m[1] + m[2]; // "e " / "e! "
     var typed = m[3];
 
-    if(!cmdCompl.active){
-      // 初回起動: 現在 typed を使って候補生成
-      var list = buildFileCompletions(typed);
-      if(!list.length){
-        resetCmdCompl();
-        return;
-      }
-      cmdCompl.active = true;
-      cmdCompl.list = list;
-      cmdCompl.index = 0;
+    // 動的に毎回候補を再構築
+    var list = buildFileCompletions(typed);
+    if(!list.length){
+      // 候補無し → 新規ファイル名の可能性を残すため一覧だけ消す
+      resetCmdCompl();
+      // head / typed の記録だけは保持（後で Tab したら再開できる）
       cmdCompl.head = head;
       cmdCompl.typed = typed;
-      cmdCompl.filterPrefix = typed; // この時点以降は絞り込みを拡張しない
-      showCmdCompletions(list);
-      applyCurrentCandidate(); // ← 初回表示で入力欄に第1候補を反映
       return;
     }
 
-    // 以後（アクティブ中）はリスト再構築せず "残す"
-    // head が e / e! から変わることは通常無いが、念のため更新
-    cmdCompl.head = head;
+    // 既存 index を極力維持。typed 前方一致でなくなったら最初にマッチする候補へ。
+    var idx = cmdCompl.index;
+    var needRecalc = (
+      !cmdCompl.active ||
+      idx == null ||
+      idx < 0 ||
+      idx >= list.length ||
+      (typed && list[idx].toLowerCase().indexOf(typed.toLowerCase()) !== 0)
+    );
 
-    // 現在タイピング内容
-    cmdCompl.typed = typed;
-
-    // 現在の typed にマッチする最初の候補へ自動ジャンプ（候補は消さない）
-    if (typed.length){
-      var idx = -1;
-      for (var i=0;i<cmdCompl.list.length;i++){
-        if (cmdCompl.list[i].toLowerCase().indexOf(typed.toLowerCase()) === 0){
-          idx = i; break;
+    if (needRecalc){
+      idx = -1;
+      if (typed){
+        var low = typed.toLowerCase();
+        for (var i=0;i<list.length;i++){
+          if (list[i].toLowerCase().indexOf(low) === 0){ idx = i; break; }
         }
       }
-      if (idx !== -1){
-        cmdCompl.index = idx;
-        applyCurrentCandidate(); // 打鍵で自然に候補に展開
-      }
+      if (idx === -1) idx = 0;
     }
 
-    showCmdCompletions(cmdCompl.list);
+    cmdCompl.active = true;
+    cmdCompl.list   = list;
+    cmdCompl.index  = idx;
+    cmdCompl.head   = head;
+    cmdCompl.typed  = typed;
+
+    // ここで applyCurrentCandidate() を呼ばない（＝入力欄内容はユーザ入力を保持）
+    showCmdCompletions(list);
   }
 
   function cycleCmdCompl(dir){
