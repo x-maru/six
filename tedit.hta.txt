@@ -210,6 +210,39 @@ var OPT = {
 };
 
 var modified = false; // 編集フラグ（Vim風にリネーム）
+// ====== Undo (最小実装) ======
+var UNDO_MAX = 200;
+var undoStack = [];
+var insertSessionActive = false;
+
+function pushUndo(reason){
+  var ed = document.getElementById('editor');
+  if(!ed) return;
+  if (undoStack.length && undoStack[undoStack.length-1].text === ed.value) return;
+  undoStack.push({
+    text: ed.value,
+    pos: getCaret(ed),
+    reason: reason||''
+  });
+  if (undoStack.length > UNDO_MAX) undoStack.shift();
+}
+
+function doUndo(){
+  var ed = document.getElementById('editor');
+  if(!ed || !undoStack.length){
+    if (typeof showMsg === 'function') showMsg('No undo', 800);
+    return;
+  }
+  var snap = undoStack.pop();
+  ed.value = snap.text;
+  setCaret(ed, Math.min(snap.pos, ed.value.length));
+  modified = true;
+  insertSessionActive = false;
+  if (typeof updateStatus==='function') updateStatus(ed);
+  if (typeof ensureScrolloff==='function') ensureScrolloff(ed);
+  if (typeof updateGutter==='function') updateGutter();
+}
+
 // ====== 基本ユーティリティ ======
 function getCaret(editor){
   if (editor && typeof editor.selectionStart === 'number'){
@@ -453,22 +486,33 @@ var gPending = false;
 var visActiveEnd = null;
 
 function setMode(newMode, editor){
-  mode=newMode; document.getElementById('mode').innerText='['+mode+']';
-  if(mode!==MODE_VISUAL){
+  var prev = mode;
+  mode=newMode;
+  document.getElementById('mode').innerText='['+mode+']';
+
+  if(mode===MODE_INSERT){
+    if(!insertSessionActive){
+      pushUndo('insert-begin');
+      insertSessionActive = true;
+    }
     anchorPos=null; visualCol=null; opPending=null; lastMotionDir=null; visActiveEnd=null;
     countBuffer=''; opRepeat=1;
-    if(editor && typeof editor.selectionStart==='number' && editor.selectionStart!==editor.selectionEnd){
-      var end=editor.selectionEnd; setCaret(editor,end);
-    }
-  }else{
+  }else if(mode===MODE_VISUAL){
     anchorPos=getCaret(editor);
-    visualCol = getLineCol(editor.value, anchorPos).col - 1; // 0-based
+    visualCol = getLineCol(editor.value, anchorPos).col - 1;
     setSelection(editor,anchorPos,anchorPos);
-    lastMotionDir=null; visActiveEnd=null; // VISUAL入り直後は未定義
+    lastMotionDir=null; visActiveEnd=null;
     countBuffer=''; opRepeat=1;
+    if(prev===MODE_INSERT) insertSessionActive=false;
+  }else{ // NORMAL
+    anchorPos=null; visualCol=null; opPending=null; lastMotionDir=null; visActiveEnd=null;
+    countBuffer=''; opRepeat=1;
+    if(editor && editor.selectionStart!==editor.selectionEnd){
+      setCaret(editor, editor.selectionEnd);
+    }
+    if(prev===MODE_INSERT) insertSessionActive=false;
   }
-  // モード切替は削除追記チェーンをリセット
-  lastCmd = 'other';
+  lastCmd='other';
   updateStatus(editor); ensureScrolloff(editor);
 }
 
@@ -513,6 +557,7 @@ function posDown(text,pos,lines){
 
 // 文字範囲の削除（x / d{motion} 用）
 function deleteRange(editor, a, b, opts){
+  pushUndo('delete');
   var v = editor.value;
   var s = Math.max(0, Math.min(a, b));
   var e = Math.max(0, Math.max(a, b));
@@ -652,26 +697,6 @@ function hideHelp(){
 }
 function toggleHelp(){ var h=document.getElementById('help'); h.style.display = (h.style.display==='block'?'none':'block'); }
 
-function setMode(newMode, editor){
-  mode=newMode; document.getElementById('mode').innerText='['+mode+']';
-  if(mode!==MODE_VISUAL){
-    anchorPos=null; visualCol=null; opPending=null; lastMotionDir=null; visActiveEnd=null;
-    countBuffer=''; opRepeat=1;
-    if(editor && typeof editor.selectionStart==='number' && editor.selectionStart!==editor.selectionEnd){
-      var end=editor.selectionEnd; setCaret(editor,end);
-    }
-  }else{
-    anchorPos=getCaret(editor);
-    visualCol = getLineCol(editor.value, anchorPos).col - 1; // 0-based
-    setSelection(editor,anchorPos,anchorPos);
-    lastMotionDir=null; visActiveEnd=null; // VISUAL入り直後は未定義
-    countBuffer=''; opRepeat=1;
-  }
-  // モード切替は削除追記チェーンをリセット
-  lastCmd = 'other';
-  updateStatus(editor); ensureScrolloff(editor);
-}
-
 // ====== ガター ======
 function updateGutter() {
   var gutter = document.getElementById('gutter');
@@ -796,6 +821,12 @@ function closeCmdBar(){
 function runCommand(cmd){
   var s=(cmd||'').trim();
   if(s===''){ closeCmdBar(); return; }
+
+  if (/^u$/i.test(s)){
+    closeCmdBar();
+    doUndo();
+    return;
+  }
 
   // help
   if (/^(help|\?)$/i.test(s)) { closeCmdBar(); showHelp(); return; }
@@ -1007,6 +1038,7 @@ function tryEmacsCtrl(editor,e){
   editor.focus();
   setMode(MODE_NORMAL,editor);
   setCaret(editor, 0);
+  pushUndo('initial');
   updateStatus(editor); ensureScrolloff(editor); updateGutter();
   // 行番号ガターの初期表示
   updateGutter();
@@ -1132,6 +1164,16 @@ function tryEmacsCtrl(editor,e){
            return;
          }
       }
+
+      case 'u': { // undo
+        if (mode===MODE_NORMAL){
+          doUndo();
+          countBuffer=''; opPending=null; opRepeat=1;
+          return;
+        }
+        break;
+      }
+
       // --- 削除（単体） ---
       case 'x': {
         if (mode!==MODE_INSERT){
@@ -1252,7 +1294,6 @@ function tryEmacsCtrl(editor,e){
         target=posUp(text,p,n); lastMotionDir='up'; break;
       }
 
-      // （置換）switch(lower){ 内の case 'w': ブロック
       case 'w': {
         var nMotion = takeCount(1);
         var tl = totalLines(text);
@@ -1402,6 +1443,7 @@ function tryEmacsCtrl(editor,e){
     // INSERT：クリップボードからテキスト取得して LF 正規化
     var t = (window.clipboardData && window.clipboardData.getData('Text'));
     if (typeof t === 'string') {
+      pushUndo('paste');
       e.preventDefault(); e.stopPropagation();
       // v1 は LF 固定。将来は OPT.fileformat で 'dos' 時に \r\n に正規化。
       t = t.replace(/\r\n?/g, '\n');
