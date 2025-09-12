@@ -873,8 +873,9 @@ function closeCmdBar(){
   document.getElementById('editor').focus(); 
 }
 function runCommand(cmd){
-  var s=(cmd||'').trim();
-  if(s===''){ closeCmdBar(); return; }
+  var s = (cmd || '').trim();
+  if (s.charAt(0) === ':') s = s.slice(1);   // ←追加: 先頭コロン除去
+  if (s === '') { closeCmdBar(); return; }
 
   if (/^u$/i.test(s)){
     closeCmdBar();
@@ -980,29 +981,48 @@ function runCommand(cmd){
     showMsg('unknown option: ' + arg, 1400); closeCmdBar(); return;
   }
 
-  // :e / :edit (UTF-8対応)
-  if (/^e(dit)?\\s+.+/i.test(s)) {
-    try {
-      var path = s.replace(/^e(dit)?\\s+/i, "").trim();
-      var fso = new ActiveXObject("Scripting.FileSystemObject");
-      if (fso.FileExists(path)) {
-        var stream = new ActiveXObject("ADODB.Stream");
-        stream.Type = 2; // text
-        stream.Charset = "UTF-8";
-        stream.Open();
-        stream.LoadFromFile(path);
-        var content = stream.ReadText();
-        stream.Close();
-        editor.value = content;
-        showMsg("Loaded: " + path, 1500);
-      } else {
-        showMsg("File not found: " + path, 2000);
-      }
-    } catch(e) {
-      showMsg("Error loading file", 2000);
-    }
+  // （削除）runCommand 内の重複した古い :e 読み込みブロック（"^e(dit)?\\s+.+", バックスラッシュ2つのもの）を丸ごと削除
+  // 例: if (/^e(dit)?\\s+.+/i.test(s)) { ... }  ← このブロック全体削除
+
+  // help
+  if (/^(help|\?)$/i.test(s)) { closeCmdBar(); showHelp(); return; }
+
+  // 数値のみ: 行番号へジャンプ（:99 など）
+  if (/^\d+$/.test(s)) {
+    var ln = parseInt(s,10);
+    var ed = document.getElementById('editor');
+    var t = ed.value;
+    var pos = lineFirstNonBlankByNumber(t, ln);
+    setCaret(ed, pos);
     closeCmdBar();
     return;
+  }
+
+  if (/^debugscroll$/i.test(s)){
+    closeCmdBar();
+    var ed = document.getElementById('editor');
+    var lh = getLineHeightPx(ed);
+    var ch = ed.clientHeight;
+    var sh = ed.scrollHeight;
+    var STATUSBAR_H = 28;
+    var effH = ch - STATUSBAR_H;
+    var tl = totalLines(ed.value);
+    var pos = getCaret(ed);
+    var line = getLineCol(ed.value,pos).line;
+    var maxST = sh - ch; if (maxST < 0) maxST = 0;
+    showMsg('lh='+lh+' ch='+ch+' sh='+sh+' effH='+effH+' scrollTop='+ed.scrollTop+' maxST='+maxST+' line='+line+'/'+tl, true);
+    return;
+  }
+
+  // set number / nonumber / clipboard
+  var m = s.match(/^set\s+(.+)$/i);
+  if (m) {
+    var arg = m[1].trim().toLowerCase();
+    if (arg==='number' || arg==='nu') { OPT.number=true; updateGutter(); closeCmdBar(); return; }
+    if (arg==='nonumber' || arg==='nonu') { OPT.number=false; updateGutter(); closeCmdBar(); return; }
+    if (arg==='clipboard=os') { OPT.clipboard='os'; showMsg('clipboard=os', 1200); closeCmdBar(); return; }
+    if (arg==='clipboard=internal') { OPT.clipboard='internal'; showMsg('clipboard=internal', 1200); closeCmdBar(); return; }
+    showMsg('unknown option: ' + arg, 1400); closeCmdBar(); return;
   }
 
   // :e / :edit (UTF-8対応)
@@ -1059,6 +1079,8 @@ function runCommand(cmd){
 }
 
 // ====== 入力処理 ======
+var _skipComplRecalc = false; // ←追加: Esc 後の補完再計算を1回だけ抑止するフラグ
+
 function composing(e){ return e && (e.isComposing || e.keyCode===229); }
 function handleMove(editor, target, selecting){
   var text = editor.value;
@@ -1519,10 +1541,14 @@ function tryEmacsCtrl(editor,e){
         target=t; lastMotionDir='up'; break;
       }
 
+     
+
+     
+
       case '}': {
         var p = getActivePosForDir(editor,'down');
         var n = takeCount(1);
-        var t = p; for (var i=0;i<n;i++){ t = paragraphNext(text, t); }
+        var t = p; for ( var i=0;i<n;i++){ t = paragraphNext(text, t); }
         target=t; lastMotionDir='down'; break;
       }
       default:
@@ -1556,7 +1582,7 @@ function tryEmacsCtrl(editor,e){
       e.preventDefault(); e.stopPropagation();
       showMsg('NORMALでは貼り付けできません（i で INSERT へ）', 1200);
       return;
-    }
+ }
     // INSERT：クリップボードからテキスト取得して LF 正規化
     var t = (window.clipboardData && window.clipboardData.getData('Text'));
     if (typeof t === 'string') {
@@ -1611,44 +1637,76 @@ function tryEmacsCtrl(editor,e){
   // コマンドバー内キー
   var cmd=document.getElementById('cmdline');
   cmd.addEventListener('keydown', function(e){
-    if(e.key==='Escape'||e.keyCode===27){
-      e.preventDefault(); e.stopPropagation(); hideMsg(); closeCmdBar(); return;
-    }
-    if(e.key==='Enter'||e.keyCode===13){ e.preventDefault(); e.stopPropagation(); hideMsg(); runCommand(cmd.value||''); return; }
-    // TABでファイル名補完
-    if(e.key==='Tab'||e.keyCode===9){
+    var k = e.key;
+    // Enter / Esc は先に処理
+    if (k === 'Escape'){
+      // Vim 同様: コマンドライン入力自体をキャンセルして NORMAL へ戻る
       e.preventDefault(); e.stopPropagation();
-      var val = cmd.value;
-      var m = val.match(/^e(dit)?\s+(.+)$/i);
-      if(m){
-        var prefix = m[2].trim();
-        try {
-          var fso = new ActiveXObject("Scripting.FileSystemObject");
-          var folder = fso.GetFolder(".");
-          var files = [];
-          var eFiles = new Enumerator(folder.Files);
-          for (; !eFiles.atEnd(); eFiles.moveNext()) {
-            var name = String(eFiles.item().Name);
-            if(name.toLowerCase().indexOf(prefix.toLowerCase())===0){
-              files.push(name);
-            }
-          }
-          if(files.length===1){
-            // 1件なら自動補完
-            cmd.value = val.replace(prefix, files[0]);
-          }else if(files.length>1){
-            // 複数候補なら最初の候補で補完
-            cmd.value = val.replace(prefix, files[0]);
-            showMsg("候補: " + files.join(", "), 2000);
-          }else{
-            showMsg("候補なし", 1200);
-          }
-        }catch(_){
-          showMsg("補完エラー", 1200);
-        }
-      }
+      resetCmdCompl();          // 候補リスト状態クリア
+      _skipComplRecalc = true;  // 再計算抑止（安全策）
+      closeCmdBar();            // コマンドバー閉じ & editor にフォーカス
       return;
     }
+    if (k === 'Enter'){
+      // 補完候補がアクティブで現在の表示選択を確定したい場合は Tab/Enter 2 回で確定できるよう、
+      // 1回目 Enter でそのまま実行（Vim と同様）→ commit は不要
+      e.preventDefault(); e.stopPropagation();
+      hideMsg();
+      runCommand(cmd.value||'');
+      return;
+    }
+
+    // 補完中の特殊キー
+    if (cmdCompl.active){
+      if (k === 'Tab'){
+        e.preventDefault(); e.stopPropagation();
+        if (e.shiftKey) cycleCmdCompl(-1);
+        else cycleCmdCompl(1);
+        return;
+      }
+      if (k === 'ArrowDown' || k === 'Down'){
+        e.preventDefault(); e.stopPropagation();
+        cycleCmdCompl(1); return;
+      }
+      if (k === 'ArrowUp' || k === 'Up'){
+        e.preventDefault(); e.stopPropagation();
+        cycleCmdCompl(-1); return;
+      }
+      if ((e.ctrlKey && (k==='ArrowRight' || k==='Right')) || (e.ctrlKey && e.keyCode===39)){
+        // Ctrl+→ で確定
+        e.preventDefault(); e.stopPropagation();
+        commitCmdCompletion();
+        return;
+      }
+      if (k === 'Tab' && e.ctrlKey){
+        e.preventDefault(); e.stopPropagation();
+        commitCmdCompletion();
+        return;
+      }
+    } else {
+      // 非アクティブ時に Tab → 補完開始（:e / :e! の時のみ）
+      if (k === 'Tab'){
+        var val = cmd.value;
+        if (/^:?(e!?)(\s+).*/i.test(val)){
+          e.preventDefault(); e.stopPropagation();
+          updateCmdCompletions();
+          if (!cmdCompl.active){
+            showMsg('候補なし', 900);
+          }
+        } else {
+          // 何もしない（通常はフォーカス移動だがここでは抑止しない）
+          // e.preventDefault();
+        }
+        return;
+      }
+    }
+
+    // 文字入力など → keydown 時点では value まだ更新されていないので後で再計算
+    setTimeout(function(){
+      if(_skipComplRecalc){ _skipComplRecalc=false; return; } // ←追加
+      // 入力中に補完開始条件を満たしたら開始
+      updateCmdCompletions();
+    },0);
   });
 
   // cmdbar自体へのESC/コマンド切替
@@ -1703,6 +1761,180 @@ function tryEmacsCtrl(editor,e){
   window.addEventListener('keydown', globalEscHandler, true);
   document.body.addEventListener('keydown', globalEscHandler, true);
   document.addEventListener('keydown', globalEscHandler, true);
+
+  // filepath: c:\Users\ymaru\tedit\tedit\tedit.hta.txt
+  // === Command-line completion (GLOBAL) for :e / :e! ===
+  var cmdCompl = {
+    active:false,
+    list:[],
+    index:-1,
+    head:'',
+    typed:'',
+    filterPrefix:'' // 初回起動時の入力（以後フィルタを狭めないため保持）
+  };
+
+  function resetCmdCompl(){
+    cmdCompl.active = false;
+    cmdCompl.list = [];
+    cmdCompl.index = -1;
+    cmdCompl.head = '';
+    cmdCompl.typed = '';
+    hideCmdCompletions();
+  }
+
+  function buildFileCompletions(prefix){
+    try{
+      var fso=new ActiveXObject("Scripting.FileSystemObject");
+      var dir, base;
+      var lastSep = Math.max(prefix.lastIndexOf('\\'), prefix.lastIndexOf('/'));
+      if(lastSep>=0){
+        dir = prefix.slice(0,lastSep+1);
+        base= prefix.slice(lastSep+1);
+        if(!dir) dir='.\x5c';
+      }else{
+        dir='.\x5c'; base=prefix;
+      }
+      var folder; try{ folder=fso.GetFolder(dir); }catch(_){ return []; }
+      var eFiles=new Enumerator(folder.Files);
+      var out=[];
+      for(; !eFiles.atEnd(); eFiles.moveNext()){
+        var name=String(eFiles.item().Name);
+        if(!base || name.toLowerCase().indexOf(base.toLowerCase())===0){
+          out.push(dir + name);
+        }
+      }
+      out.sort();
+      return out;
+    }catch(_){ return []; }
+  }
+
+  function ensureCmdComplBox(){
+    var box=document.getElementById('cmdcomplist');
+    if(!box){
+      box=document.createElement('div');
+      box.id='cmdcomplist';
+      box.style.cssText=[
+        'position:absolute','left:6px','bottom:60px','max-width:70%','max-height:180px',
+        'overflow:auto','background:#202124','border:1px solid #555',
+        'font:12px Consolas,monospace','color:#ddd','padding:4px 6px','z-index:50',
+        'box-shadow:0 4px 12px rgba(0,0,0,.45)'
+      ].join(';');
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+
+  function showCmdCompletions(list){
+    var box=ensureCmdComplBox();
+    if(!list.length){ box.style.display='none'; return; }
+    var html=[];
+    for(var i=0;i<list.length;i++){
+      var sel=(i===cmdCompl.index);
+      html.push('<div style="padding:2px 4px;'+(sel?'background:#3a3d42;color:#fff;':'')+'">'+
+              escapeHtml(list[i])+'</div>');
+    }
+    box.innerHTML=html.join('');
+    box.style.display='block';
+  }
+  function hideCmdCompletions(){
+    var box=document.getElementById('cmdcomplist');
+    if(box) box.style.display='none';
+  }
+
+  // （置換）updateCmdCompletions（グローバル定義側）: head をコロン無しで保持
+  function updateCmdCompletions(){
+    var cmdEl = document.getElementById('cmdline');
+    if(!cmdEl) return;
+    var val = cmdEl.value;
+    // 入力欄はコロン無し想定（: は prefix スパン表示）なので先頭の任意コロンは無視許容
+    var m = val.replace(/^:/,'').match(/^(e!?)(\s+)(.*)$/i);
+    if(!m){ resetCmdCompl(); return; }
+    var head = m[1] + m[2]; // "e " or "e! "
+    var typed = m[3];
+
+    if(!cmdCompl.active){
+      // 初回起動: 現在 typed を使って候補生成
+      var list = buildFileCompletions(typed);
+      if(!list.length){
+        resetCmdCompl();
+        return;
+      }
+      cmdCompl.active = true;
+      cmdCompl.list = list;
+      cmdCompl.index = 0;
+      cmdCompl.head = head;
+      cmdCompl.typed = typed;
+      cmdCompl.filterPrefix = typed; // この時点以降は絞り込みを拡張しない
+      showCmdCompletions(list);
+      applyCurrentCandidate(); // ← 初回表示で入力欄に第1候補を反映
+      return;
+    }
+
+    // 以後（アクティブ中）はリスト再構築せず "残す"
+    // head が e / e! から変わることは通常無いが、念のため更新
+    cmdCompl.head = head;
+
+    // 現在タイピング内容
+    cmdCompl.typed = typed;
+
+    // 現在の typed にマッチする最初の候補へ自動ジャンプ（候補は消さない）
+    if (typed.length){
+      var idx = -1;
+      for (var i=0;i<cmdCompl.list.length;i++){
+        if (cmdCompl.list[i].toLowerCase().indexOf(typed.toLowerCase()) === 0){
+          idx = i; break;
+        }
+      }
+      if (idx !== -1){
+        cmdCompl.index = idx;
+        applyCurrentCandidate(); // 打鍵で自然に候補に展開
+      }
+    }
+
+    showCmdCompletions(cmdCompl.list);
+  }
+
+  function cycleCmdCompl(dir){
+    if(!cmdCompl.active || !cmdCompl.list.length) return;
+    var n = cmdCompl.list.length;
+    cmdCompl.index = (cmdCompl.index + (dir<0?-1:1) + n) % n;
+    applyCurrentCandidate();     // ← 移動するたびに入力欄へ反映
+    showCmdCompletions(cmdCompl.list);
+  }
+
+  // （修正）commitCmdCompletion（グローバル定義側）内 colon 除去: value へ書く際に head から先頭コロンを除く
+  function commitCmdCompletion(){
+    if(!cmdCompl.active) return;
+    applyCurrentCandidate(); // 既に入力欄へ反映されているので確定処理はこれだけ
+  }
+
+  // （追加）cmdCompl 関連関数群の中に挿入（resetCmdCompl() の直後など適所）
+  function applyCurrentCandidate(){
+    if(!cmdCompl.active) return;
+    if(cmdCompl.index<0 || cmdCompl.index>=cmdCompl.list.length) return;
+    var cmdEl = document.getElementById('cmdline');
+    if(!cmdEl) return;
+    var cand = cmdCompl.list[cmdCompl.index];
+    // head は "e " / "e! " 形式（先頭コロン無し）
+    cmdEl.value = cmdCompl.head + cand;
+    // 反映後、カーソルを末尾へ
+    cmdEl.selectionStart = cmdEl.selectionEnd = cmdEl.value.length;
+  }
+
+  function escapeHtml(s){
+    return s.replace(/[&<>"']/g,function(c){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]);
+    });
+  }
+
+  // （追加）コマンドライン input / blur イベント（既存になければ追加）
+  cmd.addEventListener('input', function(){
+    updateCmdCompletions();
+  });
+  cmd.addEventListener('blur', function(){
+    // フォーカス外れたら閉じる
+    resetCmdCompl();
+  });
 })();
 </script>
 </body>
