@@ -1,4 +1,3 @@
-<script>const version = "Rev. 013";</script>
 <!DOCTYPE html>
 <html>
 <head>
@@ -24,21 +23,7 @@
     color: #ddd;
     font-family: Consolas, "Courier New", monospace;
   }
-  #toolbar {
-    height: 32px; line-height: 32px;
-    padding: 0 8px;
-    background: #2b2d31;
-    border-bottom: 1px solid #3b3d42;
-    font-size: 12px;
-    user-select: none;
-    display: flex; align-items: center;
-    position: relative; z-index: 2;
-  }
-  #mode { font-weight: bold; margin-right: 12px; }
-  #hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #pos  { margin-left: auto; }
-
-  #pane { position: relative; height: calc(100% - 32px); }
+  #pane { position: relative; height: 100%; }
 
   /* 行番号ガター */
   #gutter {
@@ -46,6 +31,7 @@
     width: 72px; background: #1b1c1f; border-right: 1px solid #3b3d42;
     color: #c0c0c0; text-align: right; padding-right: 8px; box-sizing: border-box;
     font-size: 21px; line-height: 1.6; pointer-events: none; overflow: hidden;
+    z-index: 2; /* ←追加 */
   }
   #gutter .ln { height: 1.6em; }
 
@@ -61,13 +47,73 @@
   /* コマンドバー（:） */
   #cmdbar {
     position: absolute; left: 0; right: 0; bottom: 0;
-    height: 28px; background: #2b2d31; border-top: 1px solid #3b3d42;
-    display: none; align-items: center; padding: 0 6px; box-sizing: border-box; z-index: 3;
+    height: 64px;
+    background: #222; color: #fff;
+    border-top: 1px solid #3b3d42; font-size: 14px;
+    display: flex; flex-direction: column; z-index: 10;
   }
-  #cmdprefix { color: #8ab4f8; margin-right: 4px; }
+  #statusline1 {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 28px;
+    overflow: hidden;
+  }
+  #filename, #modmark, #mode, #pos {
+    flex: 0 0 auto;
+    min-width: 80px;
+    max-width: 160px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #hint {
+    flex: 1 1 auto;
+    text-align: center;
+    min-width: 120px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #cmdprefix, #cmdline {
+    position: static;
+    font-size: 14px;
+    height: 28px;
+    margin: 0;
+    background: #232323;
+    color: #fff;
+    border: none;
+    box-sizing: border-box;
+    display: inline-block;
+    vertical-align: middle;
+  }
   #cmdline {
-    flex: 1; height: 20px; background: #1e1f22; color: #ddd;
-    border: 1px solid #3b3d42; outline: none; padding: 0 6px; font-family: inherit; font-size: 12px;
+    width: calc(100% - 32px);
+    padding: 4px 12px;
+    border: 1px solid #3b3d42;
+    color: #fff;
+    background: #232323;
+    outline: none;
+    font-family: inherit;
+    margin-left: 0;
+    margin-right: 0;
+    display: none;
+    height: 28px;
+  }
+  #cmdmsg {
+    display: none;
+    position: absolute;
+    left: 0; top: 0; width: 100%; height: 100%;
+    background: #232323; color: #ffd;
+    font-size: 14px;
+    padding: 4px 12px;
+    box-sizing: border-box;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    z-index: 12;
+    height: 28px;
   }
 
   /* ヘルプオーバーレイ */
@@ -89,30 +135,48 @@
     background: #2b2d31; border: 1px solid #3b3d42; color: #ddd;
     padding: 6px 10px; border-radius: 4px; font-size: 12px; display: none;
   }
+
+  /* ステータスバー */
+  #statusbar {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    height: 28px; background: #222; color: #fff;
+    border-top: 1px solid #3b3d42; font-size: 14px;
+    display: flex; align-items: center; padding-left: 12px; z-index: 10;
+  }
+  #statusline2 {
+    width: 100%;
+    height: 28px;
+    border-top: 2px solid #555;
+    background: #232323;
+    position: relative;
+    z-index: 11;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 </style>
 </head>
 <body>
-  <div id="toolbar">
-    <span id="mode">[NORMAL]</span>
-    <span id="hint">
-      移動: <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> / <kbd>w</kbd>/<kbd>b</kbd> /
-      行: <kbd>^</kbd>/<kbd>0</kbd>/<kbd>$</kbd> / 段落: <kbd>{</kbd>/<kbd>}</kbd> /
-      挿入: <kbd>i</kbd> / VISUAL: <kbd>v</kbd> / 取消: <kbd>Esc</kbd> /
-      Emacs風: <kbd>Ctrl+P/N/F/B</kbd> / ヘルプ: <kbd>F1</kbd> or <kbd>:help</kbd>
-    </span>
-    <span id="pos">Ln 1, Col 1</span>
+  <!-- 画面下部コマンド/ステータス/メッセージバー（統合） -->
+  <div id="cmdbar" tabindex="0">
+    <div id="statusline1">
+      <span id="filename"></span>
+      <span id="modmark"></span>
+      <span id="mode"></span>
+      <span id="pos"></span>
+      <span id="hint"></span>
+    </div>
+    <div id="statusline2">
+      <div id="cmdmsg" style="display:none;"></div>
+      <span id="cmdprefix" style="display:none">:</span>
+      <input id="cmdline" type="text" style="display:none" />
+    </div>
   </div>
 
   <div id="pane">
     <div id="gutter"></div>
     <textarea id="editor" spellcheck="false" wrap="off"
       placeholder="ここにテキストを入力…&#10;NORMALでは h j k l / w b / ^ などで移動。&#10;i で INSERT、Esc で NORMAL。&#10;:set number / :set nonumber / :help が使えます。"></textarea>
-  </div>
-
-  <!-- コマンドバー -->
-  <div id="cmdbar">
-    <span id="cmdprefix">:</span>
-    <input id="cmdline" type="text" />
   </div>
 
   <!-- ヘルプ（最小の“使えるコマンド一覧”） -->
@@ -145,11 +209,31 @@ var OPT = {
   clipboard: 'internal'  // 'internal' or 'os'（y/d 実装時に反映）
 };
 
+var modified = false; // 編集フラグ（Vim風にリネーム）
 // ====== 基本ユーティリティ ======
-function getCaret(editor){ if (typeof editor.selectionStart === 'number') return editor.selectionStart;
-  var r = document.selection ? document.selection.createRange() : null;
-  if (!r || r.parentElement() !== editor) return 0;
-  var d = r.duplicate(); d.moveToElementText(editor); d.setEndPoint('EndToEnd', r); return d.text.length; }
+function getCaret(editor){
+  if (editor && typeof editor.selectionStart === 'number'){
+    // VISUAL中は選択のアクティブ端（右端）を基準にする
+    if (mode === MODE_VISUAL && editor.selectionStart !== editor.selectionEnd){
+      return editor.selectionEnd;
+    }
+    return editor.selectionStart;
+  }
+  return 0;
+}
+
+// VISUAL時は移動方向ごとに基準端を選ぶ（左/上=selectionStart、右/下=selectionEnd）
+function getActivePosForDir(editor, dir){
+  // VISUAL中は“アクティブ端”を優先（直前モーションで動いた側を基準にする）
+  if (mode === MODE_VISUAL && editor.selectionStart !== editor.selectionEnd){
+    if (visActiveEnd === 'start') return editor.selectionStart;
+    if (visActiveEnd === 'end')   return editor.selectionEnd;
+    // フォールバック（未設定時のみ方向で判定）
+    return (dir === 'left' || dir === 'up') ? editor.selectionStart : editor.selectionEnd;
+  }
+  return getCaret(editor);
+}
+
 function setCaret(editor,pos){ pos=Math.max(0,Math.min(editor.value.length,pos));
   if (editor.setSelectionRange){ editor.setSelectionRange(pos,pos); return; }
   var r=editor.createTextRange(); r.collapse(true); r.move('character',pos); r.select(); }
@@ -163,23 +247,162 @@ function getLineHeightPx(editor){ var cs = window.getComputedStyle?getComputedSt
   var lh=parseFloat(cs.lineHeight); if(!lh||isNaN(lh)){ var fs=parseFloat(cs.fontSize)||21; lh=Math.round(fs*1.6); } return lh; }
 function isSpace(ch){ return ch===' '||ch==='\t'||ch==='\u3000'; }
 function firstNonBlankPos(text,pos){ var s=lineStartIndex(text,pos), e=lineEndIndex(text,pos), i=s; while(i<e && isSpace(text[i])) i++; return i; }
-function wordLeftPos(text,pos){ if(pos<=0) return 0; var i=pos-1;
-  while(i>=0 && (text[i]===' '||text[i]==='\t'||text[i]==='\u3000'||text[i]==='\n')) i--;
-  while(i>=0 && !(text[i]===' '||text[i]==='\t'||text[i]==='\u3000'||text[i]==='\n')) i--;
-  return Math.max(0,i+1); }
-function wordRightPos(text,pos){ var n=text.length,i=pos;
-  while(i<n && (text[i]===' '||text[i]==='\t'||text[i]==='\u3000'||text[i]==='\n')) i++;
-  while(i<n && !(text[i]===' '||text[i]==='\t'||text[i]==='\u3000'||text[i]==='\n')) i++;
-  while(i<n && (text[i]===' '||text[i]==='\t'||text[i]==='\u3000'||text[i]==='\n')) i++;
-  return i; }
-function posUp(text,pos,lines){ lines=lines||1; var start=lineStartIndex(text,pos), col=pos-start, target=pos;
-  for(var n=0;n<lines;n++){ var prevEnd=start-1; if(prevEnd<0) break; var prevStart=lineStartIndex(text,prevEnd);
-    var prevLen=prevEnd-prevStart; target=prevStart + Math.min(col, prevLen); start=prevStart; } return target; }
-function posDown(text,pos,lines){ lines=lines||1; var start=lineStartIndex(text,pos), col=pos-start, target=pos;
-  var nextStart=lineEndIndex(text,pos)+1; for(var n=0;n<lines;n++){
-    if(nextStart<=0||nextStart>text.length) break; var nextEnd=lineEndIndex(text,nextStart);
-    var nextLen=nextEnd-nextStart; target=nextStart + Math.min(col, nextLen);
-    var afterNext=nextEnd+1; if(afterNext<=text.length) nextStart=afterNext; else break; } return target; }
+
+// 追加/置換: 行数関連ユーティリティ（末尾改行は余分に数えない）
+function totalLines(text){
+  if(!text || text.length===0) return 1;
+  var nl=0;
+  for(var i=0;i<text.length;i++){
+    if(text.charCodeAt(i)===10) nl++;
+  }
+  return (text.charAt(text.length-1)==='\n') ? nl : nl+1;
+}
+function lineStartByNumber(text, ln){
+  ln = ln|0;
+  if (ln<=1) return 0;
+  var cur=1, i=0, L=text.length;
+  while(i<L && cur<ln){
+    var j=text.indexOf('\n', i);
+    if(j===-1) return L;
+    i=j+1;
+    // 末尾改行直後は空行として数えない（ln が行数上限を超えたら末尾へ）
+    cur++;
+  }
+  return i;
+}
+function lineFirstNonBlankByNumber(text, ln){
+  var s=lineStartByNumber(text, ln);
+  var e=lineEndIndex(text,s);
+  while(s<e && isSpace(text[s])) s++;
+  return s;
+}
+
+// 行番号ライン範囲（linewise）削除ヘルパ : startLine, endLine を丸ごと削除
+function deleteLineRange(editor, text, startLine, endLine){
+  startLine = startLine|0; endLine = endLine|0;
+  if (startLine < 1) startLine = 1;
+  if (endLine < 1) endLine = 1;
+  var fromLine = Math.min(startLine, endLine);
+  var toLine   = Math.max(startLine, endLine);
+  // 行開始位置
+  var startIdx = lineStartByNumber(text, fromLine);
+  var endLineStart = lineStartByNumber(text, toLine);
+  var endIdx = lineEndIndex(text, endLineStart);
+  // 末尾に改行があるなら含める（最終行でなければ +1）
+  if (endIdx < text.length) endIdx = endIdx + 1;
+  deleteRange(editor, startIdx, endIdx, { linewise: true });
+}
+
+// ==== 日本語対応の語移動ヘルパ ====
+// サロゲートペア対応コードポイント処理
+function _cpAt(str,i){ var hi=str.charCodeAt(i); if(hi>=0xD800&&hi<=0xDBFF&&i+1<str.length){ var lo=str.charCodeAt(i+1); if(lo>=0xDC00&&lo<=0xDFFF){ return (hi-0xD800)*0x400+(lo-0xDC00)+0x10000; } } return hi; }
+function _nextIndex(str,i){ if(i>=str.length) return str.length; var hi=str.charCodeAt(i); if(hi>=0xD800&&hi<=0xDBFF&&i+1<str.length){ var lo=str.charCodeAt(i+1); if(lo>=0xDC00&&lo<=0xDFFF) return i+2; } return i+1; }
+function _prevIndex(str,i){ if(i<=0) return 0; var lo=str.charCodeAt(i-1); if(lo>=0xDC00&&lo<=0xDFFF&&i-2>=0){ var hi=str.charCodeAt(i-2); if(hi>=0xD800&&hi<=0xDBFF) return i-2; } return i-1; }
+
+// 語クラス判定
+var _WT_SPACE=0,_WT_NL=1,_WT_ALNUM=2,_WT_KANA=3,_WT_HAN=4,_WT_SYMBOL=5;
+function _isSpaceCp(cp){ return cp===0x20||cp===0x09||cp===0x3000; }
+function _isNewlineCp(cp){ return cp===0x0A||cp===0x0D; }
+function _isAsciiWordCp(cp){ return (cp>=0x30&&cp<=0x39)||(cp>=0x41&&cp<=0x5A)||(cp>=0x61&&cp<=0x7A)||cp===0x5F; }
+function _isFullwidthAlnumCp(cp){ return (cp>=0xFF10&&cp<=0xFF19)||(cp>=0xFF21&&cp<=0xFF3A)||(cp>=0xFF41&&cp<=0xFF5A)||cp===0xFF3F; }
+function _isKanaCp(cp){ return (cp>=0x3040&&cp<=0x309F)||(cp>=0x30A0&&cp<=0x30FF)||(cp>=0xFF66&&cp<=0xFF9D)||cp===0x30FC||cp===0x30FB; }
+function _isHanCp(cp){ return (cp>=0x4E00&&cp<=0x9FFF)||(cp>=0x3400&&cp<=0x4DBF)||(cp>=0x20000&&cp<=0x2FA1F); }
+function _wordTypeAt(str,i){
+  if(i<0||i>=str.length) return _WT_SPACE;
+  var cp=_cpAt(str,i);
+  if(_isNewlineCp(cp)) return _WT_NL;
+  if(_isSpaceCp(cp)) return _WT_SPACE;
+  if(_isAsciiWordCp(cp)||_isFullwidthAlnumCp(cp)) return _WT_ALNUM;
+  if(_isKanaCp(cp)) return _WT_KANA;
+  if(_isHanCp(cp)) return _WT_HAN;
+  return _WT_SYMBOL;
+}
+
+// b: 前の語頭へ（空白・改行を飛ばし、直前の語ブロックの先頭へ）
+function wordLeftPos(text,pos){
+  var i=pos;
+  // 左側の空白/改行を飛ばす
+  while(i>0){
+    var pi=_prevIndex(text,i);
+    var t=_wordTypeAt(text,pi);
+    if(t!==_WT_SPACE && t!==_WT_NL) break;
+    i=pi;
+  }
+  if(i<=0) return 0;
+  // 直前位置の語タイプ
+  var j=_prevIndex(text,i);
+  var curT=_wordTypeAt(text,j);
+  // その語ブロックの先頭へ
+  while(j>0){
+    var pj=_prevIndex(text,j);
+    if(_wordTypeAt(text,pj)!==curT) break;
+    j=pj;
+  }
+  return j;
+}
+
+// w: 次の語頭へ（現語ブロックの末尾→後続の空白/改行を飛ばして次の語頭）
+function wordRightPos(text,pos){
+  var n=text.length, i=pos;
+  if(i>=n) return n;
+  // 空白/改行の上ならまず飛ばす
+  while(i<n){
+    var t=_wordTypeAt(text,i);
+    if(t!==_WT_SPACE && t!==_WT_NL) break;
+    i=_nextIndex(text,i);
+  }
+  if(i>=n) return n;
+  // 現在の語タイプの連続を抜ける
+  var curT=_wordTypeAt(text,i);
+  while(i<n && _wordTypeAt(text,i)===curT){
+    i=_nextIndex(text,i);
+  }
+  // 次の語頭まで空白/改行を飛ばす
+  while(i<n){
+    var t2=_wordTypeAt(text,i);
+    if(t2!==_WT_SPACE && t2!==_WT_NL) break;
+    i=_nextIndex(text,i);
+  }
+  return i;
+}
+function posUp(text,pos,lines){
+  lines=lines||1;
+  var start=lineStartIndex(text,pos), col=pos-start, target=pos;
+  for(var n=0;n<lines;n++){
+    var prevEnd=start-1;
+    if(prevEnd<0) break;
+    var prevStart=lineStartIndex(text,prevEnd);
+    var prevLen=prevEnd-prevStart;
+    // VISUALモード時はanchorPosの列を維持できる範囲で移動
+    if(mode===MODE_VISUAL && visualCol!==null){
+      target=prevStart+Math.min(visualCol, prevLen);
+    }else{
+      target=prevStart+Math.min(col,prevLen);
+    }
+    start=prevStart;
+  }
+  return target;
+}
+
+function posDown(text,pos,lines){
+  lines=lines||1;
+  var start=lineStartIndex(text,pos), col=pos-start, target=pos;
+  var nextStart=lineEndIndex(text,pos)+1;
+  for(var n=0;n<lines;n++){
+    if(nextStart<=0||nextStart>text.length) break;
+    var nextEnd=lineEndIndex(text,nextStart);
+    var nextLen=nextEnd-nextStart;
+    // VISUALモード時はanchorPosの列を維持できる範囲で移動
+    if(mode===MODE_VISUAL && visualCol!==null){
+      target=nextStart+Math.min(visualCol, nextLen);
+    }else{
+      target=nextStart+Math.min(col,nextLen);
+    }
+    var afterNext=nextEnd+1;
+    if(afterNext<=text.length) nextStart=afterNext; else break;
+  }
+  return target;
+}
 // 段落（空行区切り）
 function isLineBlank(text, lineStart){ var end=lineEndIndex(text,lineStart); var s=text.slice(lineStart,end); return s.replace(/[ \t\u3000]/g,'').length===0; }
 function paragraphPrev(text,pos){ var curStart=lineStartIndex(text,pos); var j=curStart-1;
@@ -190,9 +413,201 @@ function paragraphNext(text,pos){ var i=lineEndIndex(text,pos)+1;
     var ls=i, le=lineEndIndex(text,ls); if(isLineBlank(text,ls)){ var k=le+1; while(k<=text.length && isLineBlank(text,k)) k=lineEndIndex(text,k)+1;
       return firstNonBlankPos(text, Math.min(k,text.length)); } i=le+1; } return pos; }
 
+// --- 最終行終端判定（Ctrl+N / w で末行から“下”に抜けるのを防止）---
+if (typeof isAtLastLineCaret !== 'function') {
+  function isAtLastLineCaret(text, pos){
+    if (!text) return true;
+    var tl = totalLines(text);
+    var lc = getLineCol(text, pos).line;
+    if (lc !== tl) return false;
+    if (text.length === 0) return true;
+    if (text.charAt(text.length-1) === '\n') {
+      // 末尾改行あり: 改行文字（length-1）位置が最終行終端
+      return pos >= text.length - 1;
+    }
+    // 末尾改行なし: EOF が終端
+    return pos >= text.length;
+  }
+}
+
+// （追加）isAtLastLineCaret の直後など、既存ユーティリティ付近に挿入
+// --- 最終行判定（行番号のみで判定：末尾の位置に依らず最終行なら true）---
+if (typeof isOnLastLine !== 'function') {
+  function isOnLastLine(text, pos){
+    if (!text) return true;
+    return getLineCol(text, pos).line === totalLines(text);
+  }
+}
+
 // ====== モード管理 ======
 var MODE_NORMAL='NORMAL', MODE_INSERT='INSERT', MODE_VISUAL='VISUAL';
-var mode = MODE_NORMAL, anchorPos=null;
+var mode = MODE_NORMAL, anchorPos=null, visualCol = null, opPending = null, lastMotionDir = null; // ←追加: 直前の移動方向を記憶
+// 直前コマンドの種別と、直前削除が行単位だったかを記録（dd連打で追記するため）
+var lastCmd = null, lastDeleteLinewise = false;
+// 数値接頭辞バッファと演算子の繰り返し数（N d {motion} の N）
+var countBuffer = '';
+var opRepeat = 1;
+// 追加: 'g' プレフィックス待機フラグ（gg 判定用）
+var gPending = false;
+// 追加: VISUAL選択の“アクティブ端”（直近モーションで動いた側）を保持
+var visActiveEnd = null;
+
+function setMode(newMode, editor){
+  mode=newMode; document.getElementById('mode').innerText='['+mode+']';
+  if(mode!==MODE_VISUAL){
+    anchorPos=null; visualCol=null; opPending=null; lastMotionDir=null; visActiveEnd=null;
+    countBuffer=''; opRepeat=1;
+    if(editor && typeof editor.selectionStart==='number' && editor.selectionStart!==editor.selectionEnd){
+      var end=editor.selectionEnd; setCaret(editor,end);
+    }
+  }else{
+    anchorPos=getCaret(editor);
+    visualCol = getLineCol(editor.value, anchorPos).col - 1; // 0-based
+    setSelection(editor,anchorPos,anchorPos);
+    lastMotionDir=null; visActiveEnd=null; // VISUAL入り直後は未定義
+    countBuffer=''; opRepeat=1;
+  }
+  // モード切替は削除追記チェーンをリセット
+  lastCmd = 'other';
+  updateStatus(editor); ensureScrolloff(editor);
+}
+
+function posUp(text,pos,lines){
+  lines=lines||1;
+  var start=lineStartIndex(text,pos), col=pos-start, target=pos;
+  for(var n=0;n<lines;n++){
+    var prevEnd=start-1;
+    if(prevEnd<0) break;
+    var prevStart=lineStartIndex(text,prevEnd);
+    var prevLen=prevEnd-prevStart;
+    // VISUALモード時はanchorPosの列を維持できる範囲で移動
+    if(mode===MODE_VISUAL && visualCol!==null){
+      target=prevStart+Math.min(visualCol, prevLen);
+    }else{
+      target=prevStart+Math.min(col,prevLen);
+    }
+    start=prevStart;
+  }
+  return target;
+}
+
+function posDown(text,pos,lines){
+  lines=lines||1;
+  var start=lineStartIndex(text,pos), col=pos-start, target=pos;
+  var nextStart=lineEndIndex(text,pos)+1;
+  for(var n=0;n<lines;n++){
+    if(nextStart<=0||nextStart>text.length) break;
+    var nextEnd=lineEndIndex(text,nextStart);
+    var nextLen=nextEnd-nextStart;
+    // VISUALモード時はanchorPosの列を維持できる範囲で移動
+    if(mode===MODE_VISUAL && visualCol!==null){
+      target=nextStart+Math.min(visualCol, nextLen);
+    }else{
+      target=nextStart+Math.min(col,nextLen);
+    }
+    var afterNext=nextEnd+1;
+    if(afterNext<=text.length) nextStart=afterNext; else break;
+  }
+  return target;
+}
+
+// 文字範囲の削除（x / d{motion} 用）
+function deleteRange(editor, a, b, opts){
+  var v = editor.value;
+  var s = Math.max(0, Math.min(a, b));
+  var e = Math.max(0, Math.max(a, b));
+  if (s === e) return;
+  var deleted = v.slice(s, e);
+  var isLinewise = !!(opts && opts.linewise);
+  // 行単位削除はレジスタ内で必ず改行終端に正規化（最終行でも複数行貼り付け可）
+  if (isLinewise && !/\n$/.test(deleted)) deleted += '\n';
+  // 直前も行単位の削除なら、無名レジスタに追記（dd 連打で複数行保持）
+  var append = (lastCmd === 'delete' && lastDeleteLinewise && isLinewise);
+  var regText = append ? (REG.text + deleted) : deleted;
+  setRegister(regText, isLinewise);
+  editor.value = v.slice(0, s) + v.slice(e);
+  setCaret(editor, s);
+  modified = true;
+  updateStatus(editor);
+  ensureScrolloff(editor);
+  updateGutter();
+  // 今回のコマンドを記録
+  lastCmd = 'delete';
+  lastDeleteLinewise = isLinewise;
+}
+
+// 無名レジスタとクリップボード
+var REG = { text: '', linewise: false };
+function setClipboardText(t){
+  try{ if(window.clipboardData && typeof window.clipboardData.setData==='function'){ window.clipboardData.setData('Text', t); return true; } }catch(_){}
+  return false;
+}
+function getClipboardText(){
+  try{ if(window.clipboardData && typeof window.clipboardData.getData==='function'){ var t = window.clipboardData.getData('Text'); return (typeof t==='string')?t:null; } }catch(_){}
+  return null;
+}
+function setRegister(text, linewise){
+  REG.text = text || '';
+  REG.linewise = !!linewise;
+  if (OPT.clipboard === 'os') setClipboardText(REG.text);
+}
+function getRegister(){
+  if (OPT.clipboard === 'os'){
+    var t = getClipboardText();
+    if (typeof t === 'string') return { text: t, linewise: /\n$/.test(t) };
+  }
+  return { text: REG.text, linewise: REG.linewise };
+}
+
+// 貼り付け実装
+function pasteInsert(editor, insPos, t){
+  var v = editor.value;
+  editor.value = v.slice(0, insPos) + t + v.slice(insPos);
+  setCaret(editor, insPos + t.length);
+  modified = true;
+  updateStatus(editor); ensureScrolloff(editor); updateGutter();
+  // 貼り付けでチェーンを切る
+  lastCmd = 'other';
+}
+function pasteAfter(editor){
+  var reg = getRegister();
+  var v = editor.value;
+  var s = editor.selectionStart, en = editor.selectionEnd;
+  var pos = getCaret(editor);
+
+  // VISUAL中は選択置換
+  if (mode === MODE_VISUAL && s !== en){
+    editor.value = v.slice(0, s) + v.slice(en);
+    pos = s; v = editor.value;
+  }
+  if (reg.linewise){
+    var le = lineEndIndex(v, pos);
+    var ins = (le < v.length) ? le + 1 : v.length; // 次行頭 or EOF
+    pasteInsert(editor, ins, reg.text);
+  }else{
+    var ins = Math.min(v.length, pos + (mode===MODE_VISUAL ? 0 : 1)); // NORMALは“後”、VISUAL置換後はその位置
+    pasteInsert(editor, ins, reg.text);
+  }
+}
+function pasteBefore(editor){
+  var reg = getRegister();
+  var v = editor.value;
+  var s = editor.selectionStart, en = editor.selectionEnd;
+  var pos = getCaret(editor);
+
+  // VISUAL中は選択置換
+  if (mode === MODE_VISUAL && s !== en){
+    editor.value = v.slice(0, s) + v.slice(en);
+    pos = s; v = editor.value;
+  }
+  if (reg.linewise){
+    var ls = lineStartIndex(v, pos);
+    pasteInsert(editor, ls, reg.text);
+  }else{
+    var ins = pos; // “前”
+    pasteInsert(editor, ins, reg.text);
+  }
+}
 
 // ====== ステータス・メッセージ・ヘルプ ======
 function updateStatus(editor){
@@ -201,23 +616,59 @@ function updateStatus(editor){
   var caret=end; var lc=getLineCol(editor.value,caret); var sel=Math.abs(end-start);
   var info='Ln '+lc.line+', Col '+lc.col; if(sel>0) info+=' (Sel '+sel+')';
   document.getElementById('pos').innerText=info;
+  document.getElementById('hint').innerText =
+    '移動: h j k l / w b / ^ 0 $ / { } | 挿入: i | VISUAL: v | 取消: Esc | Emacs: Ctrl+P/N/F/B | ヘルプ: F1/:help';
+  var filename = window._currentFile || '[No Name]';
+  var modmark = modified ? '[+]' : '';
+  document.getElementById('filename').innerText = filename;
+  document.getElementById('modmark').innerText = modmark;
+  document.getElementById('mode').innerText = '['+mode+']';
 }
-function showMsg(text, ms){ var div=document.getElementById('msg'); div.innerText=text; div.style.display='block';
-  clearTimeout(showMsg._t); showMsg._t=setTimeout(function(){ div.style.display='none'; }, ms||1200); }
+function showMsg(text, hold){
+  var cmdmsg = document.getElementById('cmdmsg');
+  cmdmsg.innerText = text;
+  cmdmsg.style.display = 'block';
+  showMsg._hold = !!hold;
+  setTimeout(function(){ document.getElementById('editor').focus(); }, 0);
+  if (!hold) {
+    clearTimeout(showMsg._t);
+    showMsg._t = setTimeout(function(){
+      cmdmsg.style.display = 'none';
+      showMsg._hold = false;
+    }, 1200);
+  }
+}
+function hideMsg(){
+  var cmdmsg = document.getElementById('cmdmsg');
+  cmdmsg.innerText = '';
+  cmdmsg.style.display = 'none';
+  showMsg._hold = false;
+}
+
 function showHelp(){ document.getElementById('help').style.display='block'; }
-function hideHelp(){ document.getElementById('help').style.display='none'; }
+function hideHelp(){
+  document.getElementById('help').style.display='none';
+  hideMsg();
+}
 function toggleHelp(){ var h=document.getElementById('help'); h.style.display = (h.style.display==='block'?'none':'block'); }
 
 function setMode(newMode, editor){
   mode=newMode; document.getElementById('mode').innerText='['+mode+']';
   if(mode!==MODE_VISUAL){
-    anchorPos=null;
+    anchorPos=null; visualCol=null; opPending=null; lastMotionDir=null; visActiveEnd=null;
+    countBuffer=''; opRepeat=1;
     if(editor && typeof editor.selectionStart==='number' && editor.selectionStart!==editor.selectionEnd){
       var end=editor.selectionEnd; setCaret(editor,end);
     }
   }else{
-    anchorPos=getCaret(editor); setSelection(editor,anchorPos,anchorPos);
+    anchorPos=getCaret(editor);
+    visualCol = getLineCol(editor.value, anchorPos).col - 1; // 0-based
+    setSelection(editor,anchorPos,anchorPos);
+    lastMotionDir=null; visActiveEnd=null; // VISUAL入り直後は未定義
+    countBuffer=''; opRepeat=1;
   }
+  // モード切替は削除追記チェーンをリセット
+  lastCmd = 'other';
   updateStatus(editor); ensureScrolloff(editor);
 }
 
@@ -225,16 +676,27 @@ function setMode(newMode, editor){
 function updateGutter() {
   var gutter = document.getElementById('gutter');
   var editor = document.getElementById('editor');
-  if (!OPT.number) { gutter.style.display='none'; editor.style.paddingLeft='10px'; return; }
-  gutter.style.display='block'; editor.style.paddingLeft='82px';
-  var text=editor.value;
-  var total = text.length===0 ? 1 : text.split('\n').length;
+  if (!OPT.number) {
+    gutter.style.display='none';
+    editor.style.paddingLeft='10px';
+    return;
+  }
+  gutter.style.display='block';
+  editor.style.paddingLeft='82px';
+  var text = editor.value;
+  var total = totalLines(text);
   var lh = getLineHeightPx(editor);
+  // ステータスバー高さ差し引き
+  var STATUSBAR_H = 28;
+  var effHeight = editor.clientHeight - STATUSBAR_H;
+  if (effHeight < lh) effHeight = lh;
   var startLine = Math.floor(editor.scrollTop / lh);
-  var visible = Math.ceil(editor.clientHeight / lh) + 1;
+  var visible = Math.ceil(effHeight / lh) + 1;
   var endLine = Math.min(total, startLine + visible);
   var html = [];
-  for (var ln = startLine + 1; ln <= endLine; ln++) html.push('<div class="ln">'+ln+'</div>');
+  for (var ln = startLine + 1; ln <= endLine; ln++) {
+    html.push('<div class="ln">' + ln + '</div>');
+  }
   gutter.innerHTML = html.join('');
   var offset = -(editor.scrollTop % lh);
   gutter.style.transform = 'translateY(' + offset + 'px)';
@@ -243,41 +705,127 @@ function updateGutter() {
 
 // ====== scrolloff（表示端からの余白スクロール） ======
 function ensureScrolloff(editor){
-  try {
+  try{
     var lh = getLineHeightPx(editor);
     if(!lh || !isFinite(lh) || lh<=0) return;
+
     var text = editor.value;
-    var total = (text.length===0) ? 1 : text.split(/\n/).length;
-    var pos = (typeof editor.selectionEnd===number) ? editor.selectionEnd : getCaret(editor);
-    var cursorLine = text.slice(0,pos).split(/\n/).length;
-    var firstVisible = Math.floor(editor.scrollTop / lh) + 1;
-    var visibleLines = Math.max(1, Math.floor(editor.clientHeight / lh));
-    var lastVisible = firstVisible + visibleLines - 1;
-    var scrolloff = 3;
-    var targetTop = editor.scrollTop;
-    // 上方向
-    if (cursorLine - firstVisible < scrolloff && firstVisible > 1) {
-      var newFirst = Math.max(1, cursorLine - scrolloff);
-      targetTop = (newFirst - 1) * lh;
+    var total = totalLines(text);
+    var pos  = (typeof editor.selectionEnd==='number')?editor.selectionEnd:getCaret(editor);
+    var cursorLine = getLineCol(text,pos).line;
+
+    var STATUSBAR_H = 28;          // 下部バー高さ
+    var clientH = editor.clientHeight;
+    var visibleH = clientH - STATUSBAR_H;
+    if (visibleH < lh) visibleH = lh;
+
+    var curTop = editor.scrollTop;
+    var realMax = editor.scrollHeight - clientH;
+    if (realMax < 0) realMax = 0;
+
+    var cursorTop    = (cursorLine - 1) * lh;
+    var cursorBottom = cursorTop + lh;
+
+    var desiredTop = curTop;
+    var scrolloffLines = 3;
+    var upMarginPx   = scrolloffLines * lh;
+    var downMarginPx = scrolloffLines * lh;
+
+    var isLastLine = (cursorLine === total);
+
+    if (isLastLine){
+      // 行が完全に見えるように: 行底を (visibleH - (任意の余白)) 内に入れる
+      // 下端ギリ配置ではなく 1 行分余裕を持たせる: 行底が (cursorBottom) → desiredTop = cursorBottom - (visibleH - lh)
+      desiredTop = cursorBottom - (visibleH - lh);
+      // これで行上端 = desiredTop + 0 となり必ず可視
+      if (desiredTop < 0) desiredTop = 0;
+      if (desiredTop > realMax) desiredTop = realMax;
+
+      // 万一 行上端がさらに上すぎて（丸ごと見えているのに余白過多）なら調整
+      if (cursorTop < desiredTop){
+        desiredTop = cursorTop;
+        if (desiredTop > realMax) desiredTop = realMax;
+        if (desiredTop < 0) desiredTop = 0;
+      }
+
+      // 行底が隠れている場合の再補正
+      var viewBottom = desiredTop + visibleH;
+      if (cursorBottom > viewBottom){
+        desiredTop = cursorBottom - (visibleH - 0); // もう一度
+        if (desiredTop < 0) desiredTop = 0;
+        if (desiredTop > realMax) desiredTop = realMax;
+      }
+    } else {
+      // 通常行: scrolloff
+      if (cursorTop - upMarginPx < curTop){
+        desiredTop = cursorTop - upMarginPx;
+      } else {
+        var viewBottom = curTop + visibleH;
+        if (cursorBottom + downMarginPx > viewBottom){
+          desiredTop = cursorBottom + downMarginPx - visibleH;
+        }
+      }
+      if (desiredTop < 0) desiredTop = 0;
+      if (desiredTop > realMax) desiredTop = realMax;
     }
-    // 下方向
-    else if (lastVisible - cursorLine < scrolloff && lastVisible < total) {
-      var newFirst = Math.max(1, cursorLine + scrolloff - visibleLines);
-      targetTop = (newFirst - 1) * lh;
+
+    if (Math.abs(desiredTop - curTop) >= 0.5){
+      editor.scrollTop = desiredTop;
     }
-    if (Math.abs(targetTop - editor.scrollTop) >= 1) editor.scrollTop = targetTop;
-  } catch(_) {}
+  }catch(_){}
 }
 
 // ====== コマンドバー ======
-function openCmdBar(){ var bar=document.getElementById('cmdbar'); var inp=document.getElementById('cmdline'); bar.style.display='flex'; inp.value=''; inp.focus(); }
-function closeCmdBar(){ var bar=document.getElementById('cmdbar'); var inp=document.getElementById('cmdline'); bar.style.display='none'; inp.blur(); setMode(MODE_NORMAL, document.getElementById('editor')); }
+function openCmdBar(){
+  hideMsg();
+  var inp=document.getElementById('cmdline');
+  document.getElementById('cmdprefix').style.display = 'inline-block';
+  inp.style.display = 'inline-block';
+  inp.value='';
+  inp.focus();
+}
+function closeCmdBar(){
+  var inp=document.getElementById('cmdline');
+  inp.blur();
+  inp.style.display = 'none';
+  document.getElementById('cmdprefix').style.display = 'none';
+  setMode(MODE_NORMAL, document.getElementById('editor'));
+  hideMsg();
+  document.getElementById('editor').focus(); 
+}
 function runCommand(cmd){
   var s=(cmd||'').trim();
   if(s===''){ closeCmdBar(); return; }
 
   // help
   if (/^(help|\?)$/i.test(s)) { closeCmdBar(); showHelp(); return; }
+
+  // 数値のみ: 行番号へジャンプ（:99 など）
+  if (/^\d+$/.test(s)) {
+    var ln = parseInt(s,10);
+    var ed = document.getElementById('editor');
+    var t = ed.value;
+    var pos = lineFirstNonBlankByNumber(t, ln);
+    setCaret(ed, pos);
+    closeCmdBar();
+    return;
+  }
+
+  if (/^debugscroll$/i.test(s)){
+    closeCmdBar();
+    var ed = document.getElementById('editor');
+    var lh = getLineHeightPx(ed);
+    var ch = ed.clientHeight;
+    var sh = ed.scrollHeight;
+    var STATUSBAR_H = 28;
+    var effH = ch - STATUSBAR_H;
+    var tl = totalLines(ed.value);
+    var pos = getCaret(ed);
+    var line = getLineCol(ed.value,pos).line;
+    var maxST = sh - ch; if (maxST < 0) maxST = 0;
+    showMsg('lh='+lh+' ch='+ch+' sh='+sh+' effH='+effH+' scrollTop='+ed.scrollTop+' maxST='+maxST+' line='+line+'/'+tl, true);
+    return;
+  }
 
   // set number / nonumber / clipboard
   var m = s.match(/^set\s+(.+)$/i);
@@ -329,7 +877,10 @@ function runCommand(cmd){
         var content = stream.ReadText();
         stream.Close();
         editor.value = content;
+        window._currentFile = path; // ファイル名を記憶
         showMsg("Loaded: " + path, 1500);
+        editor.focus(); setCaret(editor, 0);
+        modified = false; // ファイル読込時は未編集状態に
       } else {
         showMsg("File not found: " + path, 2000);
       }
@@ -344,7 +895,18 @@ function runCommand(cmd){
   // open file
 
   // quit
-  if (/^q!?$/i.test(s)) {
+  // 強制終了
+  if (/^q!$/i.test(s)) {
+    closeCmdBar();
+    window.close();
+    return;
+  }
+  // quit（警告あり）
+  if (/^q$/i.test(s)) {
+    if (modified) {
+      showMsg('編集内容が保存されていません', true);
+      return;
+    }
     closeCmdBar();
     window.close();
     return;
@@ -357,20 +919,76 @@ function runCommand(cmd){
 // ====== 入力処理 ======
 function composing(e){ return e && (e.isComposing || e.keyCode===229); }
 function handleMove(editor, target, selecting){
-  if(mode===MODE_VISUAL||selecting){ if(anchorPos==null) anchorPos=getCaret(editor); setSelection(editor,anchorPos,target); }
-  else { setCaret(editor,target); }
+  var text = editor.value;
+  target = Math.max(0, Math.min(target, text.length));
+  if(mode===MODE_VISUAL||selecting){
+    if(anchorPos==null) anchorPos=getCaret(editor);
+    // VISUALモード時はexclusive selection
+    if (mode === MODE_VISUAL) {
+      setSelection(editor, anchorPos, target);
+      // どちら側が“動いた端”かを記録（次のモーション基準に使う）
+      visActiveEnd = (target < anchorPos) ? 'start' : 'end';
+    } else {
+      setSelection(editor, anchorPos, target);
+    }
+  } else {
+    setCaret(editor, target);
+  }
+  // 移動系コマンドが実行されたので、ddの追記チェーンはここで切る
+  lastCmd = 'move';
   updateStatus(editor); ensureScrolloff(editor);
 }
 function tryEmacsCtrl(editor,e){
   if(!e.ctrlKey||e.altKey) return false;
-  var k=(typeof e.key==='string'?e.key.toLowerCase():String.fromCharCode(e.keyCode).toLowerCase());
-  var text=editor.value,pos=getCaret(editor),handled=true,target=pos;
-  if(k==='p') target=posUp(text,pos,1);
-  else if(k==='n') target=posDown(text,pos,1);
-  else if(k==='f') target=Math.min(text.length,pos+1);
-  else if(k==='b') target=Math.max(0,pos-1);
-  else handled=false;
-  if(handled){ e.preventDefault(); e.stopPropagation(); handleMove(editor,target,mode===MODE_VISUAL); return true; }
+  var k = (typeof e.key==='string'
+           ? e.key.toLowerCase()
+           : String.fromCharCode(e.keyCode).toLowerCase());
+  var text = editor.value;
+  var target = getCaret(editor);
+  var handled = true;
+
+  if (k === 'p'){ // Ctrl+P = 上
+    var p = getActivePosForDir(editor,'up');
+    target = posUp(text,p,1);
+    lastMotionDir='up';
+  }
+  // （置換）tryEmacsCtrl 内の  else if (k === 'n'){ ... } ブロック
+  else if (k === 'n'){ // Ctrl+N = 下
+    var p = getActivePosForDir(editor,'down');
+    // 現在が最終行なら不動
+    if (isOnLastLine(text, p)){
+      e.preventDefault(); e.stopPropagation();
+      return true;
+    }
+    var np = posDown(text, p, 1);
+    // 進めない（物理的に同じ位置）
+    if (np === p){
+      e.preventDefault(); e.stopPropagation();
+      return true;
+    }
+    // 最終行への“侵入”は許可（ここが前回との違い）
+    target = np;
+    lastMotionDir='down';
+  }
+  else if (k === 'f'){ // Ctrl+F = 右
+    var p = getActivePosForDir(editor,'right');
+    target = Math.min(text.length, p+1);
+    lastMotionDir='right';
+  }
+  else if (k === 'b'){ // Ctrl+B = 左
+    var p = getActivePosForDir(editor,'left');
+    target = Math.max(0, p-1);
+    lastMotionDir='left';
+  }
+  else {
+    handled = false;
+  }
+
+  if (handled){
+    e.preventDefault(); e.stopPropagation();
+    handleMove(editor, target, mode===MODE_VISUAL);
+    return true;
+  }
   return false;
 }
 
@@ -386,8 +1004,15 @@ function tryEmacsCtrl(editor,e){
     'ペースト: INSERTでCtrl+V/Shift+Ins/右クリック可（改行はLFに正規化）。NORMALでは不可。\n' +
     'ヘルプ: F1 または :help\n';
 
-  editor.focus(); setMode(MODE_NORMAL,editor);
+  editor.focus();
+  setMode(MODE_NORMAL,editor);
+  setCaret(editor, 0);
   updateStatus(editor); ensureScrolloff(editor); updateGutter();
+  // 行番号ガターの初期表示
+  updateGutter();
+  // ステータスバー初期表示
+  document.getElementById('cmdline').style.display = 'none';
+  document.getElementById('cmdprefix').style.display = 'none';
 
   // --- キー処理（エディタ） ---
   editor.addEventListener('keydown', function(e){
@@ -398,6 +1023,15 @@ function tryEmacsCtrl(editor,e){
     var lower = key.toLowerCase();
     var text=editor.value, pos=getCaret(editor);
 
+    // --- 修飾キー単独押下は状態を壊さず無視（Shift が countBuffer/opPending を消していた原因） ---
+    // IE/HTA では Shift 押下だけでも keydown が飛ぶためここで即リターン
+    if (
+      key === 'Shift' || key === 'Control' || key === 'Alt' || key === 'Meta' ||
+      e.keyCode === 16 || e.keyCode === 17 || e.keyCode === 18 || e.keyCode === 91
+    ) {
+      return;
+    }
+
     if(mode===MODE_INSERT){
       if(composing(e)) return;
       if(key==='Escape'||e.keyCode===27){ e.preventDefault(); e.stopPropagation(); setMode(MODE_NORMAL,editor); return; }
@@ -405,7 +1039,7 @@ function tryEmacsCtrl(editor,e){
     }
 
     // NORMAL / VISUAL
-    if(composing(e)){ e.preventDefault(); return; }
+    if(composing(e)){ e.preventDefault(); }
     e.preventDefault(); e.stopPropagation();
 
     // モード切替・ヘルプ・Ex
@@ -414,25 +1048,333 @@ function tryEmacsCtrl(editor,e){
     if(key==='Escape'||e.keyCode===27){ setMode(MODE_NORMAL,editor); return; }
     if(key===':'){ openCmdBar(); return; }
 
+    // --- 数値接頭辞 ---
+    if (lower>='0' && lower<='9'){
+      if (lower==='0' && countBuffer===''){
+        // 単独 0 は行頭コマンド
+      } else {
+        countBuffer += lower;
+        return;
+      }
+    }
+
+    function takeCount(def){
+      var n = parseInt(countBuffer||'',10);
+      countBuffer='';
+      if(!isFinite(n) || n<=0) return (def==null?1:def);
+      return n;
+    }
+
+    // --- G / NG 早期処理（大文字 G 判定を強化）---
+    var isUpperG = (key === 'G') || (e.shiftKey && (key === 'g' || key === 'G')) || (e.shiftKey && e.keyCode === 71);
+    if (isUpperG){
+      var tl  = totalLines(text);
+      var curLine = getLineCol(text, pos).line;
+      var raw = countBuffer; countBuffer='';
+      var n = parseInt(raw||'',10);
+      var line = (isFinite(n)&&n>0) ? Math.min(tl,n) : tl;
+
+      if (opPending === 'd'){
+        deleteLineRange(editor, text, curLine, line);
+        opPending=null; opRepeat=1; gPending=false;
+        return;
+      }
+
+      // 要望: 最終行で末尾改行なし→行末(=EOF)、末尾改行あり→改行文字位置
+      var startIdx = lineStartByNumber(text, line);
+      var targetPos;
+      if (line === tl){
+        // 末尾が改行なら改行文字位置、無ければ EOF (=その行末)
+        targetPos = (text.charAt(text.length-1)==='\n') ? text.length-1 : text.length;
+        // 安全: startIdx を越えているならそのまま（textarea では text.length も妥当）
+        if (targetPos < startIdx) targetPos = startIdx;
+      }else{
+        // 中間行は行頭（好みにより firstNonBlank へ変更可）
+        targetPos = startIdx;
+      }
+
+      lastMotionDir = (line >= curLine) ? 'down' : 'up';
+      handleMove(editor, targetPos, mode===MODE_VISUAL);
+      // 明示再調整
+      ensureScrolloff(editor);
+      gPending = false;
+      return;
+    }
+
+    // 'g' 以外入力で gPending 解除（上の G 早期処理後に判定）
+    if (lower !== 'g') gPending = false;
+
     // 移動（NORMAL/ VISUAL）
     var target=pos, selecting=(mode===MODE_VISUAL);
     switch(lower){
-      case 'h': target=Math.max(0,pos-1); break;
-      case 'l': target=Math.min(text.length,pos+1); break;
-      case 'k': target=posUp(text,pos,1); break;
-      case 'j': target=posDown(text,pos,1); break;
-      case 'w': target=wordRightPos(text,pos); break;
-      case 'b': target=wordLeftPos(text,pos); break;
-      case '0': target=lineStartIndex(text,pos); break;
-      case '$': target=lineEndIndex(text,pos); break;
-      case '^': target=firstNonBlankPos(text,pos); break;
-      case '{': target=paragraphPrev(text,pos); break;
-      case '}': target=paragraphNext(text,pos); break;
+      // --- g / gg / Ngg 専用（G は早期処理へ分離）---
+      case 'g': {
+        // gg / Ngg
+         if (gPending){
+           var raw2 = countBuffer; countBuffer='';
+           var n2 = parseInt(raw2||'',10);
+           var line2 = (isFinite(n2)&&n2>0) ? n2 : 1;
+           var curLineObj2 = getLineCol(text, pos);
+           if (opPending === 'd'){
+             // dgg / dNgg 行単位削除
+             deleteLineRange(editor, text, curLineObj2.line, line2);
+             opPending=null; opRepeat=1; gPending=false;
+             return;
+           }
+           var tpos2 = lineFirstNonBlankByNumber(text, line2);
+           lastMotionDir = (line2 < curLineObj2.line) ? 'up' : 'down';
+           target = tpos2;
+           gPending=false;
+           break;
+         } else {
+           // 1文字目の 'g' 待機（カウントは保持したまま）
+           gPending=true;
+           return;
+         }
+      }
+      // --- 削除（単体） ---
+      case 'x': {
+        if (mode!==MODE_INSERT){
+          var n = takeCount(1);
+          if (pos < text.length) deleteRange(editor, pos, Math.min(text.length, pos+n));
+          opRepeat = 1; // 単発コマンドで演算子カウントはリセット
+          return;
+        }
+        break;
+      }
+
+      // --- 貼り付け ---
+      case 'p':
+        if (mode!==MODE_INSERT){ pasteAfter(editor); countBuffer=''; opRepeat=1; return; }
+        break;
+      case 'P':
+        if (mode!==MODE_INSERT){ pasteBefore(editor); countBuffer=''; opRepeat=1; return; }
+        break;
+
+      // --- 演算子 d （次のモーションで削除）---
+      case 'd': {
+        if (mode!==MODE_INSERT){
+          if (opPending === 'd') {
+            var lines = opRepeat * takeCount(1);
+            if (lines < 1) lines = 1;
+            var ls = lineStartIndex(text, pos);
+            var tpos = pos, lastEnd = lineEndIndex(text, tpos);
+            for (var i=1;i<lines;i++){
+              if (lastEnd >= text.length) break;
+              var nextStart = lastEnd + 1;
+              lastEnd = lineEndIndex(text, nextStart);
+            }
+            var e  = (lastEnd < text.length) ? lastEnd + 1 : lastEnd;
+            deleteRange(editor, ls, e, { linewise: true });
+            opPending = null;
+            opRepeat = 1;
+            return;
+          }
+          opPending = 'd';
+          opRepeat = takeCount(1);
+          return;
+        }
+        break;
+      }
+
+      case 'h': {
+        var p = getActivePosForDir(editor,'left');
+        var n = takeCount(1);
+        if (opPending === 'd'){
+          if (p > 0) deleteRange(editor, Math.max(0, p-n), p); // d{n}h
+          opPending = null;
+          opRepeat = 1;
+          return;
+        }
+        target=Math.max(0,p-n); lastMotionDir='left'; break;
+      }
+
+      case 'l': {
+        var p = getActivePosForDir(editor,'right');
+        var n = takeCount(1);
+        if (opPending === 'd'){
+          if (p < text.length) deleteRange(editor, p, Math.min(text.length, p+n)); // d{n}l
+          opPending = null;
+          opRepeat = 1;
+          return;
+        }
+        target=Math.min(text.length,p+n); lastMotionDir='right'; break;
+      }
+
+      case 'j': {
+        var n = takeCount(1);
+
+        // j の基準位置（VISUAL 対応）
+        var p = getActivePosForDir(editor,'down');
+        var tl = totalLines(text);
+        var curLine = getLineCol(text, p).line;
+
+        // 既に最終行なら何もしない（末尾改行有無どちらでも不動）
+        if (curLine === tl) {
+          // 演算子待機中 (d など) の場合は取り消し
+          if (opPending) { opPending = null; opRepeat = 1; }
+          break;
+        }
+
+        // 下へ n 行（1 行ずつ進めて途中で最終行に到達したら停止）
+        var newPos = p;
+        for (var i = 0; i < n; i++) {
+          var step = posDown(text, newPos, 1);
+          if (step === newPos) break; // 進めない（安全策）
+          newPos = step;
+          if (getLineCol(text, newPos).line >= tl) break;
+        }
+
+        // 実質移動できなければ終了
+        if (newPos === p) {
+          if (opPending) { opPending = null; opRepeat = 1; }
+          break;
+        }
+
+        // d{count}j のような演算子付き（未実装なら無視）
+        if (opPending === 'd') {
+          // 現在行頭～移動先行頭直前までを削除（簡易。必要なら行単位処理に拡張）
+          var startLine = getLineCol(text, p).line;
+            var endLine = getLineCol(text, newPos).line;
+          deleteLineRange(editor, text, startLine, endLine);
+          opPending = null; opRepeat = 1;
+          break;
+        }
+
+        target = newPos;
+        lastMotionDir = 'down';
+        break;
+      }
+
+      case 'k': {
+        var p = getActivePosForDir(editor,'up');
+        var n = takeCount(1);
+        target=posUp(text,p,n); lastMotionDir='up'; break;
+      }
+
+      // （置換）switch(lower){ 内の case 'w': ブロック
+      case 'w': {
+        var nMotion = takeCount(1);
+        var tl = totalLines(text);
+        var curLine = getLineCol(text, pos).line;
+
+        // 既に最終行 → w は不動（末尾から下方向に抜けないため）
+        if (curLine === tl){
+          if (opPending) { opPending=null; opRepeat=1; }
+          break;
+        }
+
+        var nTotal = (opPending==='d' ? opRepeat*nMotion : nMotion);
+        var p0 = (opPending==='d' ? pos : getActivePosForDir(editor,'right'));
+        var t = p0;
+
+        for (var i=0;i<nTotal;i++){
+          var next = wordRightPos(text, t);
+          if (next === t) break;  // 進めない
+          t = next;
+          // （前回: 最終行へ入ったら戻す処理があった → 削除）
+        }
+
+        if (opPending === 'd'){
+          if (t > pos) deleteRange(editor, pos, t);
+          opPending=null; opRepeat=1;
+          return;
+        }
+
+        if (t === pos || t === p0){
+          break;
+        }
+
+        target = t;
+        lastMotionDir='right';
+        break;
+      }
+
+      case 'b': {
+        var nMotion = takeCount(1);
+        var nTotal = (opPending==='d'? opRepeat*nMotion : nMotion);
+        var p0 = (opPending==='d'? pos : getActivePosForDir(editor,'left'));
+        var t = p0;
+        for (var i=0;i<nTotal;i++){ t = wordLeftPos(text, t); }
+        if (opPending === 'd'){
+          if (t < pos) deleteRange(editor, t, pos);
+          opPending=null; opRepeat=1; return;
+        }
+        target=t; lastMotionDir='left'; break;
+      }
+
+      case '$': {
+        // カウントありの $ は n 行下の行末へ（Vim互換: 2$ で次行の行末）
+        var dirVis = (mode===MODE_VISUAL && editor.selectionStart!==editor.selectionEnd && (lastMotionDir==='left'||lastMotionDir==='up')) ? 'left' : 'right';
+        var nMotion = takeCount(1);
+        if (opPending === 'd'){
+          var nTotal = Math.max(1, opRepeat * nMotion);
+          var tpos = pos, tend = lineEndIndex(text, tpos);
+          for (var i=1;i<nTotal;i++){
+            if (tend >= text.length) break;
+            var ns = tend + 1;
+            tend = lineEndIndex(text, ns);
+          }
+          if (tend > pos) deleteRange(editor, pos, tend);
+          opPending=null; opRepeat=1; return;
+        }
+        var pbase = getActivePosForDir(editor, dirVis);
+        var tpos = pbase, tend = lineEndIndex(text, tpos);
+        for (var i=1;i<nMotion;i++){
+          if (tend >= text.length) break;
+          var ns = tend + 1;
+          tend = lineEndIndex(text, ns);
+        }
+        target = tend; lastMotionDir = dirVis; break;
+      }
+
+      case '0': {
+        // VISUAL時は直前の移動方向に応じて“動いている端”の行頭へ
+        (function(){
+          var isVisual = (mode===MODE_VISUAL && editor.selectionStart!==editor.selectionEnd);
+          var dir = (isVisual && (lastMotionDir==='right'||lastMotionDir==='down')) ? 'right' : 'left';
+          var p = getActivePosForDir(editor, dir);
+          target = lineStartIndex(text, p);
+          lastMotionDir = dir;
+          countBuffer=''; // 0 は行頭。数値は消費済み扱い。
+        })();
+        break;
+      }
+ 
+      case '^': {
+        // VISUAL時は直前の移動方向に応じて“動いている端”の先頭非空白へ
+        (function(){
+          var isVisual = (mode===MODE_VISUAL && editor.selectionStart!==editor.selectionEnd);
+          var dir = (isVisual && (lastMotionDir==='right'||lastMotionDir==='down')) ? 'right' : 'left';
+          var p = getActivePosForDir(editor, dir);
+          target = firstNonBlankPos(text, p);
+          lastMotionDir = dir;
+          countBuffer=''; // ^ は行頭非空白。数値は使わない。
+        })();
+        break;
+      }
+
+      case '{': {
+        var p = getActivePosForDir(editor,'up');
+        var n = takeCount(1);
+        var t = p; for (var i=0;i<n;i++){ t = paragraphPrev(text, t); }
+        target=t; lastMotionDir='up'; break;
+      }
+
+      case '}': {
+        var p = getActivePosForDir(editor,'down');
+        var n = takeCount(1);
+        var t = p; for (var i=0;i<n;i++){ t = paragraphNext(text, t); }
+        target=t; lastMotionDir='down'; break;
+      }
       default:
         // NORMAL での OS ペースト・コンテキストメニュー抑止（paste イベントでも弾くが、ヒントを出す）
         if ((e.ctrlKey && !e.altKey && lower==='v') || (e.shiftKey && e.key==='Insert')) {
           showMsg('NORMALでは貼り付けできません（i で INSERT へ）', 1400);
         }
+        // 無関係キーで d をキャンセル
+        opPending = null; opRepeat=1; countBuffer='';
+        gPending = false;
         return;
     }
     handleMove(editor,target,selecting);
@@ -440,9 +1382,14 @@ function tryEmacsCtrl(editor,e){
 
   // スクロール/入力/リサイズ
   editor.addEventListener('scroll', function(){ updateGutter(); });
-  editor.addEventListener('input',  function(){ updateStatus(editor); ensureScrolloff(editor); updateGutter(); });
+  editor.addEventListener('input',  function(){
+    updateStatus(editor); ensureScrolloff(editor); updateGutter();
+    modified = true; // 入力時に編集フラグON
+  });
   editor.addEventListener('click',  function(){ updateStatus(editor); ensureScrolloff(editor); if(mode!==MODE_VISUAL) anchorPos=null; });
   window.addEventListener('resize', function(){ updateGutter(); });
+  // 行番号表示のためのイベント
+  editor.addEventListener('keyup', function(){ updateGutter(); });
 
   // ペースト：INSERT 以外は拒否。INSERT では LF 正規化。
   editor.addEventListener('paste', function(e){
@@ -469,19 +1416,134 @@ function tryEmacsCtrl(editor,e){
 
   // F1 でヘルプ
   window.addEventListener('keydown', function(e){
-    if (e.key === 'F1') { e.preventDefault(); toggleHelp(); }
+    if (e.key === 'F1') { e.preventDefault(); toggleHelp(); return; }
     // Help表示中の Esc
     if (e.key === 'Escape' && document.getElementById('help').style.display==='block') {
-      e.preventDefault(); hideHelp();
+      e.preventDefault(); hideHelp(); return;
+    }
+    // ESCで警告メッセージを消す（cmdmsgが表示されている場合も対応）
+    if (
+      e.key === 'Escape' &&
+      showMsg._hold &&
+      document.getElementById('cmdmsg').style.display !== 'none'
+    ) {
+      hideMsg();
+      setTimeout(function(){
+        document.getElementById('editor').focus();
+      }, 0);
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    // メッセージ表示中でも「:」でコマンドバーに切り替え
+    if (e.key === ':' && showMsg._hold) {
+      hideMsg();
+      openCmdBar();
+      return;
+    }
+    // コマンドバー表示中はESCで閉じる
+    if (e.key === 'Escape' && document.getElementById('cmdline').style.display === 'inline-block') {
+      hideMsg(); // ←追加
+      closeCmdBar();
+      return;
     }
   });
 
   // コマンドバー内キー
   var cmd=document.getElementById('cmdline');
   cmd.addEventListener('keydown', function(e){
-    if(e.key==='Escape'||e.keyCode===27){ e.preventDefault(); e.stopPropagation(); closeCmdBar(); return; }
-    if(e.key==='Enter'||e.keyCode===13){ e.preventDefault(); e.stopPropagation(); runCommand(cmd.value||''); return; }
+    if(e.key==='Escape'||e.keyCode===27){
+      e.preventDefault(); e.stopPropagation(); hideMsg(); closeCmdBar(); return;
+    }
+    if(e.key==='Enter'||e.keyCode===13){ e.preventDefault(); e.stopPropagation(); hideMsg(); runCommand(cmd.value||''); return; }
+    // TABでファイル名補完
+    if(e.key==='Tab'||e.keyCode===9){
+      e.preventDefault(); e.stopPropagation();
+      var val = cmd.value;
+      var m = val.match(/^e(dit)?\s+(.+)$/i);
+      if(m){
+        var prefix = m[2].trim();
+        try {
+          var fso = new ActiveXObject("Scripting.FileSystemObject");
+          var folder = fso.GetFolder(".");
+          var files = [];
+          var eFiles = new Enumerator(folder.Files);
+          for (; !eFiles.atEnd(); eFiles.moveNext()) {
+            var name = String(eFiles.item().Name);
+            if(name.toLowerCase().indexOf(prefix.toLowerCase())===0){
+              files.push(name);
+            }
+          }
+          if(files.length===1){
+            // 1件なら自動補完
+            cmd.value = val.replace(prefix, files[0]);
+          }else if(files.length>1){
+            // 複数候補なら最初の候補で補完
+            cmd.value = val.replace(prefix, files[0]);
+            showMsg("候補: " + files.join(", "), 2000);
+          }else{
+            showMsg("候補なし", 1200);
+          }
+        }catch(_){
+          showMsg("補完エラー", 1200);
+        }
+      }
+      return;
+    }
   });
+
+  // cmdbar自体へのESC/コマンド切替
+  document.getElementById('cmdbar').addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && showMsg._hold) {
+      hideMsg();
+      document.getElementById('editor').focus();
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (e.key === ':' && showMsg._hold) {
+      hideMsg();
+      openCmdBar();
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+
+  // cmdmsgへのESC/コマンド切替
+  document.getElementById('cmdmsg').addEventListener('keydown', function(e){
+    if (showMsg._hold && (e.key === 'Escape' || e.key === ':')) {
+      hideMsg();
+      if (e.key === ':') {
+        openCmdBar();
+      } else {
+        document.getElementById('editor').focus();
+      }
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+
+  // どこでもESCで警告を消す（window, body, document）
+  function globalEscHandler(e){
+    var cmdmsgElem = document.getElementById('cmdmsg');
+    if (!cmdmsgElem) return; // ←この行を追加
+    if (
+      e.key === 'Escape' &&
+      showMsg._hold &&
+      cmdmsgElem.style.display !== 'none'
+    ) {
+      hideMsg();
+      setTimeout(function(){
+        document.getElementById('editor').focus();
+      }, 0);
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+  }
+  // グローバルESCハンドラはinit内で即時登録
+  window.addEventListener('keydown', globalEscHandler, true);
+  document.body.addEventListener('keydown', globalEscHandler, true);
+  document.addEventListener('keydown', globalEscHandler, true);
 })();
 </script>
 </body>
