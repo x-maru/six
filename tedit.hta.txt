@@ -176,7 +176,7 @@
   <div id="pane">
     <div id="gutter"></div>
     <textarea id="editor" spellcheck="false" wrap="off"
-      placeholder="ここにテキストを入力…&#10;NORMALでは h j k l / w b / ^ などで移動。&#10;i で INSERT、Esc で NORMAL。&#10;:set number / :set nonumber / :help が使えます。"></textarea>
+      placeholder="ここにテキストを入力…&#10;NORMALでは h j k l / ←↓↑→ / w b / ^ などで移動。&#10;i で INSERT、Esc で NORMAL。&#10;:set number / :set nonumber / :help が使えます。"></textarea>
   </div>
 
   <!-- ヘルプ（最小の“使えるコマンド一覧”） -->
@@ -185,7 +185,7 @@
     <p>
       <strong>モード</strong>： <kbd>i</kbd> INSERT / <kbd>v</kbd> VISUAL / <kbd>Esc</kbd> NORMAL<br>
       <strong>移動</strong>： <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd>、<kbd>w</kbd>/<kbd>b</kbd>、<kbd>^</kbd>/<kbd>0</kbd>/<kbd>$</kbd>、<kbd>{</kbd>/<kbd>}</kbd><br>
-      <strong>Emacs風</strong>： <kbd>Ctrl+P</kbd>/<kbd>N</kbd>/<kbd>F</kbd>/<kbd>B</kbd><br>
+      <strong>矢印</strong>： ← ↓ ↑ → でも移動可<br>
       <strong>行番号</strong>： <code>:set number</code> / <code>:set nonumber</code><br>
       <strong>ヘルプ</strong>： <kbd>F1</kbd> or <code>:help</code><br>
       <strong>ペースト</strong>：INSERT で <kbd>Ctrl+V</kbd>（改行は LF に正規化）／NORMAL では貼り付け不可
@@ -716,7 +716,7 @@ function updateStatus(editor){
   var info='Ln '+lc.line+', Col '+lc.col; if(sel>0) info+=' (Sel '+sel+')';
   document.getElementById('pos').innerText=info;
   document.getElementById('hint').innerText =
-    '移動: h j k l / w b / ^ 0 $ / { } | 挿入: i | VISUAL: v | 取消: Esc | Emacs: Ctrl+P/N/F/B | ヘルプ: F1/:help';
+    '移動: h j k l / ←↓↑→ / w b / ^ 0 $ / { } | 挿入: i | VISUAL: v | 取消: Esc | ヘルプ: F1/:help';
   var filename = window._currentFile || '[No Name]';
   var modmark = (modifiedCount > 0) ? '[+]' : '';
   document.getElementById('filename').innerText = filename;
@@ -1167,59 +1167,14 @@ function handleMove(editor, target, selecting){
   updateStatus(editor); ensureScrolloff(editor);
 }
 function tryEmacsCtrl(editor,e){
+  // Emacs互換移動キーは廃止。Ctrl+R (Redo) のみ維持。
   if(!e.ctrlKey||e.altKey) return false;
   var k = (typeof e.key==='string'
            ? e.key.toLowerCase()
            : String.fromCharCode(e.keyCode).toLowerCase());
-  var text = editor.value;
-  var target = getCaret(editor);
-  var handled = true;
-
-  if (k === 'p'){ // Ctrl+P = 上
-    var p = getActivePosForDir(editor,'up');
-    target = posUp(text,p,1);
-    lastMotionDir='up';
-  }
-  // （置換）tryEmacsCtrl 内の  else if (k === 'n'){ ... } ブロック
-  else if (k === 'n'){ // Ctrl+N = 下
-    var p = getActivePosForDir(editor,'down');
-    // 現在が最終行なら不動
-    if (isOnLastLine(text, p)){
-      e.preventDefault(); e.stopPropagation();
-      return true;
-    }
-    var np = posDown(text, p, 1);
-    // 進めない（物理的に同じ位置）
-    if (np === p){
-      e.preventDefault(); e.stopPropagation();
-      return true;
-    }
-    // 最終行への“侵入”は許可（ここが前回との違い）
-    target = np;
-    lastMotionDir='down';
-  }
-  else if (k === 'f'){ // Ctrl+F = 右
-    var p = getActivePosForDir(editor,'right');
-    target = Math.min(text.length, p+1);
-    lastMotionDir='right';
-  }
-  else if (k === 'b'){ // Ctrl+B = 左
-    var p = getActivePosForDir(editor,'left');
-    target = Math.max(0, p-1);
-    lastMotionDir='left';
-  }
-  else if (k === 'r'){ // Ctrl+R = redo
+  if (k === 'r'){ // Ctrl+R = redo
     doRedo();
     e.preventDefault(); e.stopPropagation();
-    return true;
-  }
-  else {
-    handled = false;
-  }
-
-  if (handled){
-    e.preventDefault(); e.stopPropagation();
-    handleMove(editor, target, mode===MODE_VISUAL);
     return true;
   }
   return false;
@@ -1231,9 +1186,8 @@ function tryEmacsCtrl(editor,e){
   editor.value =
     '# Vi-like Text Editor "tedit" v0.3.3 (paste+help)\n' +
     '行番号: :set number / :set nonumber（起動時は number=on）。wrap=off 前提。\n' +
-    '移動: h j k l / w b / ^（先頭非空白）/ 0 / $ / 段落 { }\n' +
+    '移動: h j k l / ←↓↑→ / w b / ^（先頭非空白）/ 0 / $ / 段落 { }\n' +
     'モード: i → INSERT, v → VISUAL, Esc → NORMAL\n' +
-    'Emacs代替: Ctrl+P/N/F/B（全モード）\n' +
     'ペースト: INSERTでCtrl+V/Shift+Ins/右クリック可（改行はLFに正規化）。NORMALでは不可。\n' +
     'ヘルプ: F1 または :help\n';
 
@@ -1266,8 +1220,19 @@ function tryEmacsCtrl(editor,e){
     var lower = key.toLowerCase();
     var text=editor.value, pos=getCaret(editor);
 
-    // --- 修飾キー単独押下は状態を壊さず無視（Shift が countBuffer/opPending を消していた原因） ---
-    // IE/HTA では Shift 押下だけでも keydown が飛ぶためここで即リターン
+    // 追加: 矢印キーを hjkl と同等に正規化（IE9 keyCode も対応）
+    if (lower === 'arrowleft')  lower = 'h';
+    else if (lower === 'arrowdown') lower = 'j';
+    else if (lower === 'arrowup')   lower = 'k';
+    else if (lower === 'arrowright')lower = 'l';
+    else {
+      if (e.keyCode===37) lower='h';
+      else if (e.keyCode===40) lower='j';
+      else if (e.keyCode===38) lower='k';
+      else if (e.keyCode===39) lower='l';
+    }
+
+    // --- 修飾キー単独押下は状態を壊さず無視 ---
     if (
       key === 'Shift' || key === 'Control' || key === 'Alt' || key === 'Meta' ||
       e.keyCode === 16 || e.keyCode === 17 || e.keyCode === 18 || e.keyCode === 91
@@ -1581,6 +1546,7 @@ function tryEmacsCtrl(editor,e){
       }
 
       case '0': {
+
         // VISUAL時は直前の移動方向に応じて“動いている端”の行頭へ
         (function(){
           var isVisual = (mode===MODE_VISUAL && editor.selectionStart!==editor.selectionEnd);
