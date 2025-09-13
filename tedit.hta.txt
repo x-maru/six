@@ -121,13 +121,27 @@
     position: absolute; left: 5%; right: 5%; top: 8%; bottom: 8%;
     border: 1px solid #3b3d42; background: rgba(30,31,34,0.98);
     display: none; z-index: 4; box-shadow: 0 8px 24px rgba(0,0,0,.4);
-    padding: 16px; overflow: auto; font-size: 14px; line-height: 1.6;
+    padding: 16px; overflow: hidden; font-size: 14px; line-height: 1.6; /* ← overflow を hidden に */
   }
   #help h2 { margin: 0 0 8px; font-size: 16px; }
   #help kbd {
     background: #444; color: #fff; padding: 1px 4px; border-radius: 3px; font-size: 12px;
   }
   #help pre { background:#15161a; padding:8px; overflow:auto; }
+  /* 追加: ヘルプのスクロール領域/固定フッター */
+  #helpScroll {
+    position: absolute; left: 16px; right: 16px; top: 16px; bottom: 48px;
+    overflow: auto; outline: none;
+  }
+  #helpFooter {
+    position: absolute; left: 16px; right: 16px; bottom: 12px; height: 32px;
+    text-align: right;
+    font-size: 15px; /* 文字を少し大きく */
+  }
+  /* 追加: フッター左側にヘルプ用キー案内 */
+  #helpKeys {
+    float: left; color: #bbb; font-size: 15px; line-height: 32px;
+  }
 
   /* ちょいメッセージ（右下トースト） */
   #msg {
@@ -181,22 +195,88 @@
 
   <!-- ヘルプ（最小の“使えるコマンド一覧”） -->
   <div id="help">
-    <h2>使えるコマンド（最小）</h2>
-    <p>
-      <strong>モード</strong>： <kbd>i</kbd> INSERT / <kbd>v</kbd> VISUAL / <kbd>Esc</kbd> NORMAL<br>
-      <strong>移動</strong>： <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd>、<kbd>w</kbd>/<kbd>b</kbd>、<kbd>^</kbd>/<kbd>0</kbd>/<kbd>$</kbd>、<kbd>{</kbd>/<kbd>}</kbd><br>
-      <strong>矢印</strong>： ← ↓ ↑ → でも移動可<br>
-      <strong>行番号</strong>： <code>:set number</code> / <code>:set nonumber</code><br>
-      <strong>ヘルプ</strong>： <kbd>F1</kbd> or <code>:help</code><br>
-      <strong>ペースト</strong>：INSERT で <kbd>Ctrl+V</kbd>（改行は LF に正規化）／NORMAL では貼り付け不可
-    </p>
-    <hr>
-    <p>今後追加予定（v1）：<br>
-      編集：<code>i a o O</code>、<code>x</code>、<code>dd</code>、<code>d{motion}</code>、<code>c{motion}</code>、<code>cc</code>、<code>yy</code>、<code>y{motion}</code>、<code>p/P</code>、<code>.</code>、カウント<br>
-      Ex：<code>:w</code> <code>:q</code> <code>:wq</code> <code>:q!</code> <code>ZZ</code>（UTF-8 / LF）<br>
-      クリップボード：<code>:set clipboard=os|internal</code>
-    </p>
-    <p style="text-align:right"><button onclick="hideHelp()">閉じる (Esc)</button></p>
+    <div id="helpScroll" tabindex="0">
+      <h2>ヘルプ</h2>
+
+      <h2>起動時オプション（ファイルを渡して開く）</h2>
+      <ul>
+        <li>同フォルダ: <code>tedit.hta README.txt</code></li>
+        <li>フルパス: <code>mshta.exe "C:\path\to\tedit.hta" "C:\path\to\memo.txt"</code></li>
+        <li>空白を含むパスは引用符で囲む</li>
+        <li>相対パスは「tedit.hta のあるフォルダ」を基準に解決</li>
+        <li>存在すれば <strong>Loaded:</strong>、無ければ <strong>New file:</strong>（編集フラグ=0で開始）</li>
+      </ul>
+
+      <h2>NORMAL モード</h2>
+      <ul>
+        <li>移動: <kbd>h</kbd>/<kbd>j</kbd>/<kbd>k</kbd>/<kbd>l</kbd>（<kbd>←</kbd>/<kbd>↓</kbd>/<kbd>↑</kbd>/<kbd>→</kbd> でも可）</li>
+        <li>語単位: <kbd>w</kbd>（次の語先頭） / <kbd>b</kbd>（前の語先頭）</li>
+        <li>行内: <kbd>^</kbd>（先頭非空白） / <kbd>0</kbd>（行頭） / <kbd>$</kbd>（行末）</li>
+        <li>段落: <kbd>{</kbd> / <kbd>}</kbd></li>
+        <li>先頭/末尾行: <kbd>gg</kbd> / <kbd>G</kbd></li>
+        <li>カウント: 数字前置（例: 5<kbd>j</kbd>, 3<kbd>w</kbd>, 2<kbd>dd</kbd>, 10<kbd>G</kbd>）</li>
+        <li>削除:
+          <ul>
+            <li><kbd>x</kbd>（カーソル文字）</li>
+            <li><kbd>d</kbd>＋モーション（<kbd>d</kbd><kbd>h</kbd>/<kbd>d</kbd><kbd>l</kbd>/<kbd>d</kbd><kbd>w</kbd>/<kbd>d</kbd><kbd>$</kbd> など）</li>
+            <li><kbd>dd</kbd> / <code>N</code><kbd>dd</kbd>（行単位）</li>
+            <li><kbd>d</kbd><kbd>gg</kbd> / <kbd>d</kbd><kbd>G</kbd>（現在行から先頭/末尾まで行単位）</li>
+          </ul>
+        </li>
+        <li>貼り付け: <kbd>p</kbd>（後） / <kbd>P</kbd>（前）
+          <ul>
+            <li>行単位レジスタは行として貼り付け、文字単位は位置に挿入</li>
+            <li>VISUAL 選択中は置換貼り付け</li>
+          </ul>
+        </li>
+        <li>モード切替: <kbd>i</kbd>（INSERT） / <kbd>v</kbd>（VISUAL） / <kbd>Esc</kbd>（NORMALへ）</li>
+        <li>ステータス: 画面下に <code>Ln, Col, Sel, [+]</code> を表示。行番号は <kbd>:set number</kbd> で切替</li>
+      </ul>
+
+      <h2>VISUAL モード</h2>
+      <ul>
+        <li>開始/終了: <kbd>v</kbd> で開始 / <kbd>Esc</kbd> で終了</li>
+        <li>選択: exclusive（右端は含めない）</li>
+        <li>移動: <kbd>h</kbd>/<kbd>j</kbd>/<kbd>k</kbd>/<kbd>l</kbd>、<kbd>←</kbd>/<kbd>↓</kbd>/<kbd>↑</kbd>/<kbd>→</kbd>、<kbd>w</kbd>/<kbd>b</kbd>、<kbd>0</kbd>/<kbd>^</kbd>/<kbd>$</kbd>、<kbd>{</kbd>/<kbd>}</kbd>、<kbd>gg</kbd>/<kbd>G</kbd></li>
+        <li>削除: <kbd>d</kbd> で選択削除（<kbd>d</kbd>＋モーションも可）</li>
+        <li>貼り付け: <kbd>p</kbd>/<kbd>P</kbd> は選択範囲を置換</li>
+        <li>カウント: 数字前置でモーションに適用（例: 5<kbd>j</kbd>）</li>
+      </ul>
+
+      <h2>:コマンド</h2>
+      <ul>
+        <li><kbd>:e</kbd> file … ファイルを開く（無ければ新規空で開始）
+          <ul>
+            <li>補完: <kbd>Tab</kbd>/<kbd>Shift+Tab</kbd> または <kbd>↑</kbd>/<kbd>↓</kbd> で候補巡回（自動挿入なし、選択時のみ反映）</li>
+          </ul>
+        </li>
+        <li><kbd>:e!</kbd> / <kbd>:e!</kbd> file … 強制再読込（未保存変更を破棄）</li>
+        <li><kbd>:w</kbd> / <kbd>:w</kbd> path … UTF-8（LF）で保存。保存後は編集フラグクリア＆Undo基点再構築</li>
+        <li><kbd>:set number</kbd> / <kbd>:set nonumber</kbd> … 行番号表示の切替</li>
+        <li><kbd>:set clipboard=os</kbd> / <kbd>:set clipboard=internal</kbd> … クリップボード同期先</li>
+        <li><kbd>:123</kbd> … 指定行へジャンプ（先頭非空白）</li>
+        <li><kbd>:u</kbd> / <kbd>:redo</kbd> … Undo / Redo</li>
+        <li><kbd>:help</kbd> … このヘルプを表示</li>
+        <li><kbd>:q</kbd> / <kbd>:q!</kbd> … 終了（未保存変更を破棄して強制終了するには <kbd>:q!</kbd>）</li>
+        <li><kbd>:debugscroll</kbd> … スクロール境界のデバッグ情報を表示</li>
+      </ul>
+
+      <p>注: ActiveX（FileSystemObject / ADODB.Stream）が無効な環境では、ファイル操作と補完は動作しません。</p>
+    </div>
+    <div id="helpFooter">
+      <span id="helpKeys">
+        ヘルプ中の操作:
+        <kbd>j</kbd> /
+        <kbd>k</kbd> /
+        <kbd>↓</kbd> /
+        <kbd>↑</kbd> /
+        <kbd>Space</kbd> /
+        <kbd>Shift</kbd>+<kbd>Space</kbd> /
+        <kbd>gg</kbd> /
+        <kbd>G</kbd>
+      </span>
+      <button onclick="hideHelp()">閉じる (Esc)</button>
+    </div>
   </div>
 
   <div id="msg"></div>
@@ -715,8 +795,10 @@ function updateStatus(editor){
   var caret=end; var lc=getLineCol(editor.value,caret); var sel=Math.abs(end-start);
   var info='Ln '+lc.line+', Col '+lc.col; if(sel>0) info+=' (Sel '+sel+')';
   document.getElementById('pos').innerText=info;
-  document.getElementById('hint').innerText =
-    '移動: h j k l / ←↓↑→ / w b / ^ 0 $ / { } | 挿入: i | VISUAL: v | 取消: Esc | ヘルプ: F1/:help';
+  // 変更: ヘルプ案内をボタン化（クリックでヘルプ表示＋本文へフォーカス）
+  document.getElementById('hint').innerHTML =
+    '<button type="button" style="font-size:12px;padding:2px 8px;background:#2b2d31;color:#ddd;border:1px solid #3b3d42;border-radius:4px;cursor:pointer;" '+
+    'title="F1 または :help" onclick="showHelp();var sc=document.getElementById(\'helpScroll\');if(sc)sc.focus();return false;">ヘルプ: F1/:help</button>';
   var filename = window._currentFile || '[No Name]';
   var modmark = (modifiedCount > 0) ? '[+]' : '';
   document.getElementById('filename').innerText = filename;
@@ -744,12 +826,110 @@ function hideMsg(){
   showMsg._hold = false;
 }
 
-function showHelp(){ document.getElementById('help').style.display='block'; }
+function showHelp(){
+  var h = document.getElementById('help');
+  h.style.display = 'block';
+  // ヘルプにフォーカス（カーソルは表示されない）
+  var sc = document.getElementById('helpScroll');
+  if (sc) {
+    sc.focus();
+  }
+}
 function hideHelp(){
   document.getElementById('help').style.display='none';
   hideMsg();
 }
 function toggleHelp(){ var h=document.getElementById('help'); h.style.display = (h.style.display==='block'?'none':'block'); }
+
+// === ヘルプ用キーバインド（j/k/↓/↑/gg/G/ESC のみ受け付け） ===
+(function bindHelpKeys(){
+    var help = document.getElementById('help');
+    var sc = document.getElementById('helpScroll');
+    if (!help || !sc) return;
+
+    var helpGPending = false; // gg 判定
+
+    function helpLineHeight(){
+      var cs = window.getComputedStyle ? getComputedStyle(help) : help.currentStyle;
+      var lh = parseFloat(cs.lineHeight);
+      if (!lh || isNaN(lh)) {
+        var fs = parseFloat(cs.fontSize) || 14;
+        lh = Math.round(fs * 1.6);
+      }
+      return lh;
+    }
+
+    function handleHelpKey(e){
+      if (help.style.display !== 'block') return;
+      var k = e.key || '';
+      var kc = e.keyCode || 0;
+      var lh = helpLineHeight();
+      var handled = true;
+
+      // ESC → ヘルプを閉じてエディタへ
+      if (k === 'Escape' || kc === 27){
+        hideHelp();
+        var ed = document.getElementById('editor');
+        if (ed) ed.focus();
+        helpGPending = false;
+      }
+      // j / ↓ → 下へスクロール
+      else if (k === 'j' || k === 'J' || k === 'ArrowDown' || kc === 40){
+        sc.scrollTop = Math.min(sc.scrollTop + lh, sc.scrollHeight);
+        helpGPending = false;
+      }
+      // k / ↑ → 上へスクロール
+      else if (k === 'k' || k === 'K' || k === 'ArrowUp' || kc === 38){
+        sc.scrollTop = Math.max(0, sc.scrollTop - lh);
+        helpGPending = false;
+      }
+      // 追加: Space / Shift+Space → 下/上スクロール
+      else if ((k === ' ' || kc === 32) && !e.shiftKey){
+        sc.scrollTop = Math.min(sc.scrollTop + lh, sc.scrollHeight);
+        helpGPending = false;
+      }
+      else if ((k === ' ' || kc === 32) && e.shiftKey){
+        sc.scrollTop = Math.max(0, sc.scrollTop - lh);
+        helpGPending = false;
+      }
+      // gg / G
+      else if (k === 'g' || k === 'G' || kc === 71){
+        var isUpperG = (k === 'G') || (kc === 71 && e.shiftKey);
+        if (isUpperG){
+          sc.scrollTop = sc.scrollHeight;
+          helpGPending = false;
+        } else {
+          if (helpGPending){
+            sc.scrollTop = 0;
+            helpGPending = false;
+          } else {
+            helpGPending = true;
+            setTimeout(function(){ helpGPending = false; }, 800);
+          }
+        }
+      }
+      // 追加: F1 / q でも閉じる（隠し機能）
+      else if (k === 'F1' || kc === 112 || k === 'q' || k === 'Q'){
+        hideHelp();
+        var ed2 = document.getElementById('editor');
+        if (ed2) ed2.focus();
+        helpGPending = false;
+      }
+      else {
+        handled = true;
+      }
+
+      if (handled){
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      }
+    }
+
+    // ヘルプ自体とスクロール領域の両方で捕捉（フォーカス漏れ対策）
+    help.addEventListener('keydown', handleHelpKey, true);
+    sc.addEventListener('keydown', handleHelpKey, true);
+  })();
 
 // ====== ガター ======
 function updateGutter() {
@@ -1220,6 +1400,14 @@ function tryEmacsCtrl(editor,e){
     var lower = key.toLowerCase();
     var text=editor.value, pos=getCaret(editor);
 
+    // 追加: F1 は editor 側で早期処理（NORMAL/VISUAL でも stopPropagation 前に処理）
+    if ((key === 'F1') || e.keyCode === 112){
+      e.preventDefault(); e.stopPropagation();
+      showHelp();
+      var sc = document.getElementById('helpScroll'); if (sc) sc.focus();
+      return;
+    }
+
     // 追加: 矢印キーを hjkl と同等に正規化（IE9 keyCode も対応）
     if (lower === 'arrowleft')  lower = 'h';
     else if (lower === 'arrowdown') lower = 'j';
@@ -1369,6 +1557,8 @@ function tryEmacsCtrl(editor,e){
         if (mode!==MODE_INSERT){ pasteBefore(editor); countBuffer=''; opRepeat=1; return; }
         break;
 
+     
+
       // --- 演算子 d （次のモーションで削除）---
       case 'd': {
         if (mode!==MODE_INSERT){
@@ -1378,6 +1568,7 @@ function tryEmacsCtrl(editor,e){
             var ls = lineStartIndex(text, pos);
             var tpos = pos, lastEnd = lineEndIndex(text, tpos);
             for (var i=1;i<lines;i++){
+
               if (lastEnd >= text.length) break;
               var nextStart = lastEnd + 1;
               lastEnd = lineEndIndex(text, nextStart);
@@ -1485,6 +1676,7 @@ function tryEmacsCtrl(editor,e){
         var p0 = (opPending==='d' ? pos : getActivePosForDir(editor,'right'));
         var t = p0;
 
+       
         for (var i=0;i<nTotal;i++){
           var next = wordRightPos(text, t);
           if (next === t) break;  // 進めない
@@ -1579,10 +1771,6 @@ function tryEmacsCtrl(editor,e){
         target=t; lastMotionDir='up'; break;
       }
 
-     
-
-
-
       case '}': {
         var p = getActivePosForDir(editor,'down');
         var n = takeCount(1);
@@ -1639,7 +1827,14 @@ function tryEmacsCtrl(editor,e){
 
   // F1 でヘルプ
   window.addEventListener('keydown', function(e){
-    if (e.key === 'F1') { e.preventDefault(); toggleHelp(); return; }
+    // ← 置換済みのグローバルF1判定はこのままでOK（editorで捕捉できない場合の保険）
+    if ((e.key && e.key === 'F1') || e.keyCode === 112) {
+      if (e.preventDefault) e.preventDefault(); else e.returnValue = false;
+      if (e.stopPropagation) e.stopPropagation();
+      showHelp();
+      var sc = document.getElementById('helpScroll'); if (sc) sc.focus();
+      return;
+    }
     // Help表示中の Esc
     if (e.key === 'Escape' && document.getElementById('help').style.display==='block') {
       e.preventDefault(); hideHelp(); return;
