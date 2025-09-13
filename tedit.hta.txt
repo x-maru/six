@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8" />
-<meta http-equiv="X-UA-Compatible" content="IE=11">
+<meta http-equiv="X-UA-Compatible" content="IE=9">
 <title>Vi-like Text Editor "tedit" v0.3.3 (paste+help)</title>
 
 <hta:application
@@ -1249,6 +1249,14 @@ function tryEmacsCtrl(editor,e){
   document.getElementById('cmdline').style.display = 'none';
   document.getElementById('cmdprefix').style.display = 'none';
 
+  // 追加: 起動引数（app.CommandLine）でファイルを開く（存在→読込／非存在→新規）
+  (function(){
+    var a = _getStartupArgFromApp();
+    if (!a) return;
+    var full = _resolveAgainstHtaDir(a);
+    _openFileOrNewOnStartup(full);
+  })();
+
   // --- キー処理（エディタ） ---
   editor.addEventListener('keydown', function(e){
     if(document.getElementById('cmdbar').style.display==='flex') return;
@@ -2013,6 +2021,105 @@ function tryEmacsCtrl(editor,e){
     // フォーカス外れたら閉じる
     resetCmdCompl();
   });
+
+  // === 起動引数（app.CommandLine）対応のヘルパーを追加 ===
+  function _getStartupArgFromApp(){
+    try{
+      var cl = '';
+      if (window.app && (app.CommandLine || app.commandLine)){
+        cl = String(app.CommandLine || app.commandLine || '' );
+      }
+      if (!cl) return null;
+      // 例: mshta.exe "C:\...\tedit.hta" README.txt
+      var m = cl.match(/\.hta["']?\s+(.+)$/i);
+      if (!m) return null;
+      var rest = m[1].trim();
+      if (!rest) return null;
+      // 先頭がクォートならクォートまで、なければ空白まで
+      if (rest.charAt(0)==='"'){
+        var m2 = rest.match(/^"([^"]+)"/);
+        if (m2 && m2[1]) return m2[1];
+      }
+      if (rest.charAt(0)==="'"){
+        var m3 = rest.match(/^'([^']+)'/);
+        if (m3 && m3[1]) return m3[1];
+      }
+      return rest.split(/\s+/)[0];
+    }catch(_){ return null; }
+  }
+
+  function _htaPathWin(){
+    try{
+      var href = String(window.location.href||'');
+      var m = href.match(/^file:\/\/\/(.*)$/i);
+      var p = m ? m[1] : href;
+      p = decodeURIComponent(p).replace(/\//g,'\\');
+      // 先頭に余分な \ が付く場合を正規化
+      p = p.replace(/^\\+([A-Za-z]:\\)/, '$1');
+      return p;
+    }catch(_){ return ''; }
+  }
+
+  function _resolveAgainstHtaDir(p){
+    try{
+      var fso = new ActiveXObject("Scripting.FileSystemObject");
+      // 絶対パス/UNC/ルート相対はそのまま
+      if (/^[A-Za-z]:\\/.test(p) || /^\\\\/.test(p) || /^[\\\/]/.test(p)) return p;
+      var dir = fso.GetParentFolderName(_htaPathWin()) || '.';
+      return fso.BuildPath(dir, p);
+    }catch(_){ return p; }
+  }
+
+  function _openFileOrNewOnStartup(path){
+    if(!path) return;
+    try{
+      var editor = document.getElementById('editor');
+      var fso = new ActiveXObject("Scripting.FileSystemObject");
+      if (fso.FileExists(path)) {
+        var stream = new ActiveXObject("ADODB.Stream");
+        stream.Type = 2;
+        stream.Charset = "UTF-8";
+        stream.Open();
+        stream.LoadFromFile(path);
+        var content = stream.ReadText();
+        stream.Close();
+
+        editor.value = content;
+        window._currentFile = path;
+        setCaret(editor, 0);
+        setBaseline(content);
+        undoStack = [];
+        redoStack = [];
+        insertSessionActive = false;
+        pushUndo('initial');
+        updateStatus(editor); ensureScrolloff(editor); updateGutter();
+        showMsg("Loaded: " + path, 1500);
+      } else {
+        editor.value = '';
+        window._currentFile = path;
+        setCaret(editor, 0);
+        setBaseline('');
+        undoStack = [];
+        redoStack = [];
+        insertSessionActive = false;
+        pushUndo('initial');
+        updateStatus(editor); ensureScrolloff(editor); updateGutter();
+        showMsg("New file: " + path, 1500);
+      }
+    }catch(e){
+      showMsg("Startup open failed", 1800);
+    }
+  }
+
+  // 起動引数からのファイルオープン（app.CommandLine 対応）
+  (function startupFileOpen(){
+    try{
+      var arg = _getStartupArgFromApp();
+      if(!arg) return;
+      var path = _resolveAgainstHtaDir(arg);
+      _openFileOrNewOnStartup(path);
+    }catch(e){}
+  })();
 })();
 </script>
 </body>
