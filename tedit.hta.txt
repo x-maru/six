@@ -231,6 +231,13 @@
         </li>
         <li>モード切替: <kbd>i</kbd>（INSERT） / <kbd>v</kbd>（VISUAL） / <kbd>Esc</kbd>（NORMALへ）</li>
         <li>ステータス: 画面下に <code>Ln, Col, Sel, [+]</code> を表示。行番号は <kbd>:set number</kbd> で切替</li>
+        <li>検索:
+          <ul>
+            <li>開始: <kbd>/</kbd>（前方） / <kbd>?</kbd>（後方） → 文字入力でインクリメンタルサーチ、<kbd>Enter</kbd>で確定、<kbd>Esc</kbd>でキャンセル（元位置に戻る）</li>
+            <li>リピート: <kbd>n</kbd>（直前方向） / <kbd>N</kbd>（逆方向）</li>
+            <li>補足: 検索は先頭/末尾でラップ。インクリメンタルサーチ中は画面プレビューのみで、確定までは n/N の基準を汚さない。</li>
+          </ul>
+        </li>
       </ul>
 
       <h2>VISUAL モード</h2>
@@ -688,53 +695,105 @@ function posDown(text,pos,lines){
   return target;
 }
 
-// 文字範囲の削除（x / d{motion} 用）
-function deleteRange(editor, a, b, opts){
-  pushUndo('delete');
-  var v = editor.value;
-  var s = Math.max(0, Math.min(a, b));
-  var e = Math.max(0, Math.max(a, b));
-  if (s === e) return;
-  var deleted = v.slice(s, e);
-  var isLinewise = !!(opts && opts.linewise);
-  // 行単位削除はレジスタ内で必ず改行終端に正規化（最終行でも複数行貼り付け可）
-  if (isLinewise && !/\n$/.test(deleted)) deleted += '\n';
-  // 直前も行単位の削除なら、無名レジスタに追記（dd 連打で複数行保持）
-  var append = (lastCmd === 'delete' && lastDeleteLinewise && isLinewise);
-  var regText = append ? (REG.text + deleted) : deleted;
-  setRegister(regText, isLinewise);
-  editor.value = v.slice(0, s) + v.slice(e);
-  setCaret(editor, s);
-  modifiedCount++; updateModifiedFlag();
-  updateStatus(editor);
-  ensureScrolloff(editor);
-  updateGutter();
-  // 今回のコマンドを記録
-  lastCmd = 'delete';
-  lastDeleteLinewise = isLinewise;
-}
+// === 検索状態とヘルパ ===
+var searchState = { pat: '', dir: 1 }; // dir: 1=forward, -1=backward
+function doSearch(pattern, dir, fromPos, opts){
+  try{
+    var ed = document.getElementById('editor');
+    if (!ed){ return; }
+    var text = ed.value;
+    var n = text.length;
 
-// 無名レジスタとクリップボード
-var REG = { text: '', linewise: false };
-function setClipboardText(t){
-  try{ if(window.clipboardData && typeof window.clipboardData.setData==='function'){ window.clipboardData.setData('Text', t); return true; } }catch(_){}
-  return false;
-}
-function getClipboardText(){
-  try{ if(window.clipboardData && typeof window.clipboardData.getData==='function'){ var t = window.clipboardData.getData('Text'); return (typeof t==='string')?t:null; } }catch(_){}
-  return null;
-}
-function setRegister(text, linewise){
-  REG.text = text || '';
-  REG.linewise = !!linewise;
-  if (OPT.clipboard === 'os') setClipboardText(REG.text);
-}
-function getRegister(){
-  if (OPT.clipboard === 'os'){
-    var t = getClipboardText();
-    if (typeof t === 'string') return { text: t, linewise: /\n$/.test(t) };
-  }
-  return { text: REG.text, linewise: REG.linewise };
+    if (!pattern){ showMsg('No search pattern', 1200); return; }
+
+    // 基準方向更新（/:? 確定時のみ）
+    if (opts && opts.updateBase){
+      searchState.dir = (dir >= 0) ? 1 : -1;
+    }
+    searchState.pat = pattern;
+
+    var inclusive = !!(opts && opts.inclusive);
+    var pos = (typeof fromPos === 'number') ? fromPos : getCaret(ed);
+
+    // 検索前スクロール位置（可視内ヒット時の自動スクロール打消しに使用）
+    var prevST = (typeof window._searchFromScrollTop === 'number') ? window._searchFromScrollTop : ed.scrollTop;
+
+    var idx = -1;
+    if (dir >= 0){
+      var start = inclusive ? pos : Math.min(n, pos + 1);
+      if (start < 0) start = 0;
+      if (start > n) start = n;
+      idx = text.indexOf(pattern, start);
+      if (idx < 0) idx = text.indexOf(pattern, 0); // wrap
+    }else{
+      var startB = inclusive ? pos : Math.max(0, pos - 1);
+      if (startB < 0) startB = 0;
+      if (startB > n) startB = n;
+      idx = text.lastIndexOf(pattern, startB);
+      if (idx < 0) idx = text.lastIndexOf(pattern); // wrap
+    }
+
+    if (idx >= 0){
+      var end = idx + pattern.length;
+      setSelection(ed, idx, end);
+      setCaret(ed, idx);
+      updateStatus(ed);
+      try{ window._incLastMiss=false; window._incLastHit=true; window._incLastIdx=idx; }catch(_){ }
+
+      // incsearch プレビュー（未確定時のハイライトとスクロール抑制）
+      if (opts && opts.incPreview){
+        try{
+          var lc = getLineCol(text, idx);
+          renderIncPreviewRange(lc.line, lc.col, pattern.length);
+
+          var lh = getLineHeightPx(ed);
+          if (lh && isFinite(lh) && lh > 0){
+            var STATUSBAR_H = 28;
+            var visibleH = ed.clientHeight - STATUSBAR_H;
+            if (visibleH < lh) visibleH = lh;
+
+            // 検索開始時のスクロール基準で可視範囲判定
+            var startLine = Math.floor(prevST / lh) + 1;
+            var visLines  = Math.max(1, Math.ceil(visibleH / lh));
+            var endLine   = startLine + visLines - 1;
+            var hitLine   = getLineCol(text, idx).line;
+            var withinView = (hitLine >= startLine && hitLine <= endLine);
+
+            if (withinView){
+              ed.scrollTop = prevST;     // 自動スクロールを打消し
+            }else{
+              ensureScrolloff(ed);       // 画面外ヒットのみ通常調整
+            }
+          }
+        }catch(_){}
+      }else{
+        ensureScrolloff(ed);
+      }
+      return;
+    }
+
+    // 未ヒット: incsearch 中は静かに終了（復帰してメッセージ抑止）
+    if (opts && opts.incPreview){
+      try{ window._incLastMiss = true; }catch(_){}
+      try{ window._incLastIdx = undefined; }catch(_){ }
+      try{ window._incLastHit=false; }catch(_){ }
+      try{ clearIncPreview(); }catch(_){}
+      try{
+        if (typeof window._searchFromPos === 'number'){
+          var L = ed.value.length;
+          setCaret(ed, Math.max(0, Math.min(L, window._searchFromPos)));
+          updateStatus(ed);
+        }
+        if (typeof window._searchFromScrollTop === 'number'){
+          ed.scrollTop = window._searchFromScrollTop;
+        }
+      }catch(_){}
+      return;
+    }
+
+    // 通常検索（確定）時のみメッセージ表示
+    showMsg('Pattern not found: ' + pattern, 1400);
+  }catch(_){}
 }
 
 // 貼り付け実装
@@ -965,6 +1024,9 @@ function updateGutter() {
 // ====== scrolloff（表示端からの余白スクロール） ======
 function ensureScrolloff(editor){
   try{
+    // ワンショット抑止（/:? 閉じや Esc 取消直後の強制スクロールを回避）
+    if (window._suppressScrolloffOnce) { window._suppressScrolloffOnce = false; return; }
+    // ワンショット抑止（/:? 閉じや Esc 取消直後の強制スクロールを回避）
     var lh = getLineHeightPx(editor);
     if(!lh || !isFinite(lh) || lh<=0) return;
 
@@ -1038,13 +1100,40 @@ function ensureScrolloff(editor){
 function openCmdBar(){
   hideMsg();
   var inp=document.getElementById('cmdline');
-  document.getElementById('cmdprefix').style.display = 'inline-block';
+  var pre=document.getElementById('cmdprefix');
+  pre.style.display = 'inline-block';
+  pre.innerText = ':';              // ← 追加: 常にコロンに戻す
   inp.style.display = 'inline-block';
   inp.value='';
   inp.focus();
 }
 
-// （追加）コマンドライン ESC 取消バインド
+
+// 検索バー（/ または ?）
+function openSearchBar(dir){
+  hideMsg();
+  var inp = document.getElementById('cmdline');
+  var pre = document.getElementById('cmdprefix');
+  
+  // 現在カーソル位置を保存（/:? 実行時の“包含開始”で使う）
+  var ed = document.getElementById('editor');
+  window._searchFromPos = ed ? getCaret(ed) : undefined;
+  window._searchPrevPat = (window.searchState && searchState.pat) ? searchState.pat : '';
+  window._searchPrevDir = (window.searchState && typeof searchState.dir==='number') ? searchState.dir : 1;
+  window._searchFromScrollTop = ed ? ed.scrollTop : undefined;
+  
+  pre.style.display = 'inline-block';
+  pre.innerText = (dir >= 0) ? '/' : '?';
+  inp.style.display = 'inline-block';
+  inp.value = '';
+  inp.focus();
+  try{ ensureIncPreviewLayer(); clearIncPreview(); }catch(_){ }
+  if (typeof bindCmdlineIncSearch==='function') setTimeout(bindCmdlineIncSearch, 0);
+  if (typeof bindCmdlineEsc==='function') setTimeout(bindCmdlineEsc, 0);
+  if (typeof bindCmdlineIncSearch==='function') setTimeout(bindCmdlineIncSearch, 0);
+}
+
+// コマンドライン ESC 取消バインド
 function bindCmdlineEsc(){
   var cmd = document.getElementById('cmdline');
   if(!cmd || cmd._escBound) return;
@@ -1054,9 +1143,21 @@ function bindCmdlineEsc(){
       if (typeof resetCmdCompl === 'function'){
         try{ resetCmdCompl(); }catch(_){}
       }
+      // /,? 入力中のキャンセルは保存位置へ復元
+      var pre = document.getElementById('cmdprefix');
+      var pfx = pre ? (pre.innerText || pre.textContent || '') : '';
+      if ((pfx === '/' || pfx === '?') && typeof window._searchFromPos === 'number'){
+        var ed = document.getElementById('editor');
+        if (ed){
+          var L = ed.value.length;
+          setCaret(ed, Math.max(0, Math.min(L, window._searchFromPos)));
+        }
+      }
+      window._searchFromPos = undefined;
+
       closeCmdBar();
-      var ed = document.getElementById('editor');
-      if(ed) ed.focus();
+      var ed2 = document.getElementById('editor');
+      if(ed2) ed2.focus();
       e.preventDefault();
       e.stopPropagation();
     }
@@ -1078,23 +1179,41 @@ function closeCmdBar(){
   var inp=document.getElementById('cmdline');
   inp.blur();
   inp.style.display = 'none';
-  document.getElementById('cmdprefix').style.display = 'none';
+  var pre = document.getElementById('cmdprefix');
+  pre.style.display = 'none';
+  pre.innerText = ':';              // ← 追加: 閉じる時もコロンに初期化
   setMode(MODE_NORMAL, document.getElementById('editor'));
   hideMsg();
   document.getElementById('editor').focus(); 
 }
 
-// 追加: ESC 強制終了ヘルパ（再オープン抑止用統一ポイント）
-function forceCloseCmdLine(){
-  var cl = document.getElementById('cmdline');
-  if (!cl || cl.style.display !== 'inline-block') return;
-  try { resetCmdCompl(); } catch(_){}
-  closeCmdBar();
-}
-
 // コマンド実行
 function runCommand(cmd){
   var s = (cmd || '').trim();
+  // /pattern と ?pattern
+  if (s.charAt(0) === '/' || s.charAt(0) === '?'){
+    var dir = (s.charAt(0) === '/') ? 1 : -1;
+    var pat = s.slice(1);
+
+    // openSearchBar 時に保存した位置を優先（なければ現在位置）
+    var ed = document.getElementById('editor');
+    var fromPos = (typeof window._searchFromPos === 'number')
+      ? window._searchFromPos
+      : (ed ? getCaret(ed) : undefined);
+
+    window._suppressScrolloffOnce = true;  // コマンドバー閉鎖時の強制スクロールを1回抑止
+    closeCmdBar();
+    if (pat) searchState.pat = pat;
+    if (!searchState.pat){ showMsg('No search pattern', 1200); return; }
+
+    // 包含開始＋基準方向更新（/:? 用）
+    doSearch(searchState.pat, dir, fromPos, { updateBase: true, inclusive: true });
+    try{ clearIncPreview(); }catch(_){ }
+    window._searchFromScrollTop = undefined;  // 後片付け
+
+    window._searchFromPos = undefined; // 後片付け
+    return;
+  }
   if (s.charAt(0) === ':') s = s.slice(1);
   if (s === '') { closeCmdBar(); return; }
 
@@ -1430,7 +1549,12 @@ function tryEmacsCtrl(editor,e){
 
     if(mode===MODE_INSERT){
       if(composing(e)) return;
-      if(key==='Escape'||e.keyCode===27){ e.preventDefault(); e.stopPropagation(); setMode(MODE_NORMAL,editor); return; }
+      if(key==='Escape'||e.keyCode===27){
+        e.preventDefault();
+        e.stopPropagation();
+        setMode(MODE_NORMAL,editor);
+        return;
+      }
       return; // 通常入力は素通し
     }
 
@@ -1444,6 +1568,30 @@ function tryEmacsCtrl(editor,e){
     if(key==='Escape'||e.keyCode===27){ setMode(MODE_NORMAL,editor); return; }
     if(key===':'){ openCmdBar(); return; }
 
+    // 追加: 検索起動（/ 前方, ? 後方）とリピート
+    if (lower === '/') { openSearchBar(1); return; }
+    if (lower === '?') { openSearchBar(-1); return; }
+
+    // n: 直前方向（Shiftなし）
+    if (lower === 'n' && !e.shiftKey) {
+      if (searchState && searchState.pat) {
+        var cnt = takeCount(1);
+        for (var i=0; i<cnt; i++){ doSearch(searchState.pat, searchState.dir); }
+      } else {
+        showMsg('No previous search', 1000);
+      }
+      return;
+    }
+    // N: 逆方向（Shift+N または N キー判定）
+    if (key === 'N' || (lower === 'n' && e.shiftKey)) {
+      if (searchState && searchState.pat) {
+        var cnt2 = takeCount(1);
+        for (var i=0; i<cnt2; i++){ doSearch(searchState.pat, -searchState.dir); }
+      } else {
+        showMsg('No previous search', 1000);
+      }
+      return;
+    }
     // --- 数値接頭辞 ---
     if (lower>='0' && lower<='9'){
       if (lower==='0' && countBuffer===''){
@@ -1472,7 +1620,7 @@ function tryEmacsCtrl(editor,e){
 
       if (opPending === 'd'){
         deleteLineRange(editor, text, curLine, line);
-        opPending=null; opRepeat=1; gPending=false;
+               opPending=null; opRepeat=1; gPending=false;
         return;
       }
 
@@ -1875,16 +2023,34 @@ function tryEmacsCtrl(editor,e){
     // Enter / Esc は先に処理
     if (kc === 27 || k === 'Escape' || k === 'Esc'){
       e.preventDefault(); e.stopPropagation();
-      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      // 追加: /,? 入力のキャンセル時は保存位置へ復元
+      try{
+        var pre = document.getElementById('cmdprefix');
+        var pfx = pre ? (pre.innerText || pre.textContent || '') : '';
+        if ((pfx === '/' || pfx === '?') && typeof window._searchFromPos === 'number'){
+          var ed = document.getElementById('editor');
+          if (ed){
+            var L = ed.value.length;
+            setCaret(ed, Math.max(0, Math.min(L, window._searchFromPos)));
+          }
+        }
+      }catch(_){}
+      window._searchFromPos = undefined;  // 後片付け
+      window._searchFromScrollTop = undefined;
+      window._suppressScrolloffOnce = true;  // 閉じる際の強制スクロールを1回抑止
       resetCmdCompl();
       _skipComplRecalc = true;
+      try{ clearIncPreview(); }catch(_){ }
       closeCmdBar();
       return;
     }
     if (kc === 13 || k === 'Enter'){
       e.preventDefault(); e.stopPropagation();
       hideMsg();
-      runCommand(cmd.value||'');
+      // prefix（: / ?）を付けて runCommand へ
+      var preEl = document.getElementById('cmdprefix');
+      var pref = (preEl && preEl.style.display!=='none') ? (preEl.innerText||preEl.textContent||'') : '';
+      runCommand((pref||'') + (cmd.value||''));
       return;
     }
 
@@ -1898,7 +2064,9 @@ function tryEmacsCtrl(editor,e){
       }
       if (k === 'ArrowDown' || k === 'Down'){
         e.preventDefault(); e.stopPropagation();
-        cycleCmdCompl(1); return;
+        // 補完リストを1つ進めるだけ（検索処理はここには入れない）
+        cycleCmdCompl(1);
+        return;
       }
       if (k === 'ArrowUp' || k === 'Up'){
         e.preventDefault(); e.stopPropagation();
@@ -2267,7 +2435,7 @@ function tryEmacsCtrl(editor,e){
         updateStatus(editor); ensureScrolloff(editor); updateGutter();
         showMsg("New file: " + path, 1500);
       }
-    }catch(e){
+    } catch(e){
       showMsg("Startup open failed", 1800);
     }
   }
@@ -2282,6 +2450,432 @@ function tryEmacsCtrl(editor,e){
     }catch(e){}
   })();
 })();
+// インクリメンタルサーチ: /,? 入力中に1文字ごとに一時ジャンプ（確定は Enter、Esc で元に戻す）
+function bindCmdlineIncSearch(){
+  var cmd = document.getElementById('cmdline');
+  if(!cmd || cmd._incBound) return;
+  cmd.addEventListener('input', function(){
+    try{
+      var pre = document.getElementById('cmdprefix');
+      var pfx = pre ? ((pre.innerText || pre.textContent) || '') : '';
+      if (pfx !== '/' && pfx !== '?') return;
+      try{ window._incsearchActive = true; }catch(_){ }
+
+      var pat = cmd.value || '';
+      var ed  = document.getElementById('editor');
+      var fromPos = (typeof window._searchFromPos === 'number')
+        ? window._searchFromPos
+        : (ed ? getCaret(ed) : undefined);
+
+      if (!pat){
+        try{ clearIncPreview(); }catch(_){ }
+        // 空なら元位置へ（確定はまだしない）
+        if (ed && typeof window._searchFromPos === 'number'){
+          var L = ed.value.length;
+          setCaret(ed, Math.max(0, Math.min(L, window._searchFromPos)));
+          updateStatus(ed);
+        }
+        return;
+      }
+
+      var dir = (pfx === '/') ? 1 : -1;
+
+      // 直前の検索状態を退避（確定は Enter 時のみ）
+      var prevPat = (window.searchState && searchState.pat) ? searchState.pat : '';
+      var prevDir = (window.searchState && typeof searchState.dir==='number') ? searchState.dir : 1;
+
+      // 一時ジャンプ（基準方向は更新しない・包含開始）
+// early-shrink (anchor): same anchor still matches -> shrink preview length only and return
+try{
+  if (window._incPrevPos && ed && typeof pat === "string" && pat.length > 0){
+    var t0 = ed.value || "";
+    var abs0 = lineStartByNumber(t0, window._incPrevPos.line) + (window._incPrevPos.col - 1);
+    if (abs0 >= 0 && abs0 + pat.length <= t0.length && t0.substr(abs0, pat.length) === pat){
+      window._incPrevPos.len = pat.length;
+      _repositionIncPreviewRange();
+      try{ setSelection(ed, abs0, abs0 + pat.length); }catch(_){ }
+      // keep focus on cmdline
+      try{
+        if (document.activeElement !== cmd){
+          cmd.focus();
+          var v0 = cmd.value || "";
+          if (cmd.setSelectionRange) cmd.setSelectionRange(v0.length, v0.length);
+        }
+      }catch(_){}
+      // doSearch を呼ばないので n/N の基準を復元してから終了
+      try{ searchState.pat = prevPat; searchState.dir = prevDir; }catch(_){}
+      try{ window._incLastMiss = false; }catch(_){}
+      return;
+    }
+  }
+}catch(_){}
+      doSearch(pat, dir, fromPos, { updateBase: false, inclusive: true, incPreview: true });
+      // incshrink: sync overlay length with current pattern on every input
+      try{
+        if (window._incPrevPos && typeof pat === 'string'){
+          window._incPrevPos.len = pat.length;
+          _repositionIncPreviewRange();
+        }
+      }catch(_){ }
+      // shrink-by-lastidx: always resize preview to current pattern length (no focus shift)
+      try{
+        if (typeof window._incLastIdx === 'number'){
+          var __t = ed ? (ed.value||'') : '';
+          var __s = window._incLastIdx;
+          if (__s>=0 && __s<=__t.length){
+            var __lc = getLineCol(__t, __s);
+            window._incPrevPos = { line: __lc.line, col: __lc.col, len: (pat ? pat.length : 0) };
+            _repositionIncPreviewRange();
+          }
+        }
+      }catch(_){ }
+      if (window._incLastHit){
+      // shrink-follow: adjust selection and preview to pat length
+      try{
+        if (ed && typeof pat==='string'){
+          var s = (typeof ed.selectionStart==='number') ? ed.selectionStart : (typeof getCaret==='function'?getCaret(ed):0);
+          var T = ed.value || '';
+          if (s>=0 && s<=T.length){
+            setSelection(ed, s, Math.min(T.length, s + pat.length));
+            var lcS = getLineCol(T, s);
+            window._incPrevPos = { line: lcS.line, col: lcS.col, len: pat.length };
+            _repositionIncPreviewRange();
+          }
+        }
+      }catch(_){ }
+      }
+      // 入力ごとにフォーカスが editor に移った場合でも cmdline に戻す
+      try{
+        if (document.activeElement !== cmd){
+          cmd.focus();
+          var v = cmd.value || '';
+          if (cmd.setSelectionRange) cmd.setSelectionRange(v.length, v.length);
+        }
+      }catch(_){ }
+
+      // 直前の状態へ戻す（n/N の基準を汚さない）
+      try{ searchState.pat = prevPat; searchState.dir = prevDir; }catch(_){}
+      if (window._incLastHit){
+      // force: preview length follows current pattern length on every input
+      try{
+        if (window._incPrevPos && typeof pat === 'string'){
+          window._incPrevPos.len = pat.length;
+          _repositionIncPreviewRange();
+        }
+      }catch(_){ }
+      }
+      if (window._incLastHit){
+      // incsearch: shrink preview to current pattern length if selection matches
+      try{
+        if (ed && pat){
+          var s = (typeof ed.selectionStart==='number') ? ed.selectionStart : (typeof getCaret==='function'?getCaret(ed):0);
+          var e = (typeof ed.selectionEnd==='number') ? ed.selectionEnd   : s;
+          var T = ed.value || '';
+          if (s>=0 && e>=s && e<=T.length){
+            if (T.substr(s, pat.length) === pat){
+              var lc3 = getLineCol(T, s);
+              renderIncPreviewRange(lc3.line, lc3.col, pat.length);
+            }
+          }
+        }
+      }catch(_){ }
+      }
+      try{
+        if (window._incLastMiss){
+          var t = ed ? ed.value : "";
+          if (t && pat){
+            var start = (typeof fromPos === "number") ? fromPos : 0;
+            var idx2;
+            if (dir >= 0){
+              idx2 = t.indexOf(pat, start);
+              if (idx2 < 0) idx2 = t.indexOf(pat, 0);
+            }else{
+              var anchor = start; if (anchor < 0) anchor = 0; if (anchor > t.length) anchor = t.length;
+              idx2 = t.lastIndexOf(pat, anchor);
+              if (idx2 < 0) idx2 = t.lastIndexOf(pat);
+            }
+            if (idx2 >= 0){
+              try{
+                var lc2 = getLineCol(t, idx2);
+                renderIncPreviewRange(lc2.line, lc2.col, pat.length);
+                setSelection(ed, idx2, idx2 + pat.length);
+                setCaret(ed, idx2);
+                updateStatus(ed);
+              }catch(_){}
+              window._incLastMiss = false;
+            // keep focus on cmdline after revival
+            try{
+              var __cmd = document.getElementById("cmdline");
+              if (__cmd && document.activeElement !== __cmd){
+                __cmd.focus();
+                var __v = __cmd.value || "";
+                if (__cmd.setSelectionRange) __cmd.setSelectionRange(__v.length, __v.length);
+              }
+            }catch(_){ }
+            }
+          }
+        }
+      }catch(_){}
+    }catch(_){}
+      // incshrink-final: enforce overlay len at end of input
+      try{
+        if (typeof pat === 'string' && window._incPrevPos){
+          window._incPrevPos.len = pat.length;
+          _repositionIncPreviewRange();
+        }
+      }catch(_){ }
+  });
+  cmd._incBound = true;
+}
+// incsearch プレビュー用オーバーレイ（行全体を半透明で強調）
+function ensureIncPreviewLayer(){
+  if (window._incPrevLayer) return window._incPrevLayer;
+  var ed = document.getElementById('editor');
+  if (!ed) return null;
+  var layer = document.createElement('div');
+  layer.id = 'incprev-layer';
+  layer.style.position = 'absolute';
+  layer.style.pointerEvents = 'none';
+  layer.style.display = 'none';
+  layer.style.background = 'rgba(120,160,255,0.30)'; // VISUAL 相当の色味
+  layer.style.border = '0';
+  layer.style.boxSizing = 'content-box';
+  layer.style.zIndex = 10;
+  document.body.appendChild(layer);
+  // スクロールで位置追従
+  if (!window._incPrevScrollBound){
+    try{
+      ed.addEventListener('scroll', function(){
+        if (layer.style.display !== 'none'){ try{ _repositionIncPreviewRange(); }catch(_){ } }
+      });
+      window._incPrevScrollBound = true;
+    }catch(_){}
+  }
+  window._incPrevLayer = layer;
+  return layer;
+}
+function getCharWidthPx(ed){
+  try{
+    if (typeof window._charWidthPx === 'number' && window._charWidthPx > 0) return window._charWidthPx;
+    var s = ed && (ed.currentStyle || (window.getComputedStyle ? window.getComputedStyle(ed, null) : null));
+    var ff = s ? (s.fontFamily || s.fontfamily || 'monospace') : 'monospace';
+    var fs = s ? (s.fontSize   || s.fontsize   || '21px')      : '21px';
+    var ls = 0;
+    try{
+      var lsRaw = s && (s.letterSpacing || s['letter-spacing']);
+      if (lsRaw && lsRaw !== 'normal') ls = parseFloat(lsRaw) || 0;
+    }catch(_){}
+    var span = document.createElement('span');
+    span.style.position    = 'absolute';
+    span.style.visibility  = 'hidden';
+    span.style.whiteSpace  = 'pre';
+    span.style.fontFamily  = ff;
+    span.style.fontSize    = fs;
+    if (ls) span.style.letterSpacing = (ls + 'px');
+    var count = 200;
+    var sample = Array(count + 1).join('0'); // 等幅前提、平均化
+    span.innerText = sample;
+    document.body.appendChild(span);
+    var w = span.offsetWidth / count;
+    document.body.removeChild(span);
+    if (ls) w += ls;
+    window._charWidthPx = (w && isFinite(w) && w > 0) ? w : 8;
+    return window._charWidthPx;
+  }catch(_){ return 8; }
+}
+// 内部状態: 表示中の line/col/len
+window._incUseTextRange = false;  // force fallback width calc (charWidth * len)
+function _repositionIncPreviewRange(){
+  var layer = window._incPrevLayer;
+  if (!layer) return;
+  var ed = document.getElementById('editor');
+  if (!ed || typeof window._incPrevPos !== 'object') return;
+
+  var lh = getLineHeightPx(ed);
+  if (!lh || !isFinite(lh) || lh <= 0) { layer.style.display = 'none'; return; }
+
+  var line = parseInt((window._incPrevPos.line||1),10) || 1;
+  var col  = parseInt((window._incPrevPos.col ||1),10) || 1;
+  var len  = parseInt((window._incPrevPos.len ||0),10); if (!isFinite(len) || len < 0) len = 0;
+
+  // 可能なら IE の TextRange で実座標を取得（最も正確）
+  try{
+    if (ed.createTextRange){
+      var text = String(ed.value || "");
+      var absStart = 0;
+      try{
+        absStart = lineStartByNumber(text, line) + (col - 1);
+      }catch(_){ absStart = 0; }
+      if (absStart < 0) absStart = 0;
+      if (absStart > text.length) absStart = text.length;
+
+      var tr = ed.createTextRange();
+      tr.collapse(true);
+      tr.moveStart('character', absStart);
+      tr.moveEnd('character', len > 0 ? len : 0);
+      var rc = tr.getBoundingClientRect();
+      if (rc && isFinite(rc.left) && isFinite(rc.right) && isFinite(rc.top) && isFinite(rc.bottom)){
+        var cw2 = getCharWidthPx(ed);
+        var w = Math.max(1, Math.round(cw2 * Math.max(0, len)));
+        var h = Math.max(1, rc.bottom - rc.top);
+        layer.style.left   = rc.left + 'px';
+        layer.style.top    = rc.top  + 'px';
+        layer.style.width  = w + 'px';
+        layer.style.height = h + 'px';
+        layer.style.display = 'block';
+        return;
+      }
+    }
+  }catch(_){}
+
+  // フォールバック（文字幅×列 + パディング/ボーダ補正）
+  var cw = getCharWidthPx(ed);
+  var r  = ed.getBoundingClientRect();
+  var cs = ed.currentStyle || (window.getComputedStyle ? window.getComputedStyle(ed, null) : null);
+  var padL=0,padT=0,borL=0,borT=0;
+  try{
+    padL = parseFloat((cs && (cs.paddingLeft || cs['padding-left'])) || 0) || 0;
+    padT = parseFloat((cs && (cs.paddingTop  || cs['padding-top']))  || 0) || 0;
+    borL = parseFloat((cs && (cs.borderLeftWidth || cs['border-left-width'])) || 0);
+    borT = parseFloat((cs && (cs.borderTopWidth  || cs['border-top-width']))  || 0);
+    if (!isFinite(borL)) borL = ed.clientLeft || 0;
+    if (!isFinite(borT)) borT = ed.clientTop  || 0;
+  }catch(_){ borL = ed.clientLeft || 0; borT = ed.clientTop || 0; }
+
+  var contentLeft = r.left + borL + padL;
+  var contentTop  = r.top  + borT + padT;
+
+  var startCol = (col - 1);
+  var endCol   = (col - 1 + len);
+  var startOff = Math.floor(startCol * cw + 0.01);
+  var endOff   = Math.ceil(endCol   * cw - 0.01);
+
+  var top  = contentTop  + (line - 1) * lh - ed.scrollTop;
+  var left = contentLeft + startOff    - ed.scrollLeft;
+  var wid  = Math.max(1, endOff - startOff);
+
+  layer.style.left   = left + 'px';
+  layer.style.top    = top  + 'px';
+  layer.style.width  = wid  + 'px';
+  layer.style.height = Math.round(lh) + 'px';
+  layer.style.display = 'block';
+}
+function renderIncPreviewRange(line, col, len){
+  var ed = document.getElementById('editor');
+  if (!ed) return;
+  ensureIncPreviewLayer();
+  window._incPrevPos = { line: line, col: col, len: len };
+  _repositionIncPreviewRange();
+  if (window._incPrevLayer) window._incPrevLayer.style.display = 'block';
+}
+function clearIncPreview(){
+  window._incPrevPos = undefined;
+  if (window._incPrevLayer) window._incPrevLayer.style.display = 'none';
+}
 </script>
 </body>
+<script type="text/javascript">
+// incsearch addon (safe inject, no core edits)
+(function(){
+  if (window._incsearchPatched) return;
+  window._incsearchPatched = true;
+
+  function ensureBindInc(){
+    try{
+      var cmd = document.getElementById('cmdline');
+      if (!cmd || cmd._incBound) return;
+      // 入力ごとに暫定ジャンプ（基準は汚さない）
+      cmd.addEventListener('input', function(){
+        try{
+          var pre = document.getElementById('cmdprefix');
+          var pfx = pre ? ((pre.innerText || pre.textContent) || '') : '';
+          if (pfx !== '/' && pfx !== '?') return;
+          window._incsearchActive = true;
+
+          var pat = cmd.value || '';
+          var ed  = document.getElementById('editor');
+          if (!pat){
+            try{ if (typeof clearIncPreview==='function') clearIncPreview(); }catch(e){}
+            return;
+          }
+          var dir = (pfx === '/') ? 1 : -1;
+
+          // 検索基準は保存/復元して n/N の挙動を汚さない
+          var prevPat = (window.searchState && searchState.pat) ? searchState.pat : '';
+          var prevDir = (window.searchState && typeof searchState.dir==='number') ? searchState.dir : 1;
+          var fromPos = (typeof window._searchFromPos === 'number')
+            ? window._searchFromPos
+            : (ed && typeof getCaret==='function' ? getCaret(ed) : 0);
+
+          if (typeof doSearch === 'function'){
+            doSearch(pat, dir, fromPos, { updateBase:false, inclusive:true, incPreview:true });
+          }
+
+          // フォーカス維持
+          if (document.activeElement !== cmd){
+            cmd.focus();
+            var v = cmd.value || '';
+            if (cmd.setSelectionRange) cmd.setSelectionRange(v.length, v.length);
+          }
+          try{ searchState.pat = prevPat; searchState.dir = prevDir; }catch(e){}
+        }catch(e){}
+      });
+
+      // Esc で解除（プレビュー消去）
+      cmd.addEventListener('keydown', function(ev){
+        var k = ev.keyCode || ev.which;
+        if (k === 27){
+          window._incsearchActive = false;
+          try{ if (typeof clearIncPreview==='function') clearIncPreview(); }catch(e){}
+        }
+      });
+
+      cmd._incBound = true;
+    }catch(e){}
+  }
+
+  // openSearchBar 後にバインド
+  (function(){
+    var _open = window.openSearchBar;
+    if (typeof _open === 'function'){
+      window.openSearchBar = function(dir){
+        var r = _open.apply(this, arguments);
+        try{ setTimeout(ensureBindInc, 0); }catch(e){}
+        return r;
+      };
+    }else{
+      setTimeout(ensureBindInc, 500);
+    }
+  })();
+
+  // runCommand 確定時は incsearch フラグを下ろす（未ヒットならここでメッセージ許可）
+  (function(){
+    var _run = window.runCommand;
+    if (typeof _run === 'function'){
+      window.runCommand = function(cmd){
+        try{ window._incsearchActive = false; }catch(e){}
+        return _run.apply(this, arguments);
+      };
+    }
+  })();
+
+  // showMsg をラップして、incsearch 中の "Pattern not found" を抑止
+  (function(){
+    if (!window._showMsgOrig && typeof window.showMsg === 'function'){
+      window._showMsgOrig = window.showMsg;
+      window.showMsg = function(s, cls, ms){
+        try{
+          if (window._incsearchActive && typeof s === 'string'){
+            var t = s.toLowerCase ? s.toLowerCase() : String(s);
+            if (t.indexOf('pattern not found') >= 0){
+              return; // 抑止
+            }
+          }
+        }catch(e){}
+        return window._showMsgOrig.apply(this, arguments);
+      };
+    }
+  })();
+})();
+</script>
 </html>
