@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -190,7 +191,7 @@
   <div id="pane">
     <div id="gutter"></div>
     <textarea id="editor" spellcheck="false" wrap="off"
-      placeholder="ここにテキストを入力…&#10;NORMALでは h j k l / ←↓↑→ / w b / ^ などで移動。&#10;i で INSERT、Esc で NORMAL。&#10;:set number / :set nonumber / :help が使えます。"></textarea>
+      placeholder="ここにテキストを入力…&#10;NORMALでは h j k l / ←↓↑→ / w b / ^ 0 $ / gg G、行挿入 o/O、挿入 a/A、行頭 I。&#10;/ と ? で検索、n/N で次/前。&#10;i で INSERT、Esc で NORMAL。:w で保存、:help でヘルプ。"></textarea>
   </div>
 
   <!-- ヘルプ（最小の“使えるコマンド一覧”） -->
@@ -221,6 +222,9 @@
             <li><kbd>d</kbd>＋モーション（<kbd>d</kbd><kbd>h</kbd>/<kbd>d</kbd><kbd>l</kbd>/<kbd>d</kbd><kbd>w</kbd>/<kbd>d</kbd><kbd>$</kbd> など）</li>
             <li><kbd>dd</kbd> / <code>N</code><kbd>dd</kbd>（行単位）</li>
             <li><kbd>d</kbd><kbd>gg</kbd> / <kbd>d</kbd><kbd>G</kbd>（現在行から先頭/末尾まで行単位）</li>
+        <li>行挿入: <kbd>o</kbd>（下に新規行＋INSERT） / <kbd>O</kbd>（上に新規行＋INSERT）</li>
+        <li>挿入: <kbd>a</kbd>（右へ1文字進んでINSERT） / <kbd>A</kbd>（行末でINSERT） / <kbd>I</kbd>（先頭非空白でINSERT）</li>
+        <li>検索: <kbd>/</kbd>（前方） / <kbd>?</kbd>（後方）、<kbd>n</kbd>/<kbd>N</kbd> で次/前（入力中にプレビュー）</li>
           </ul>
         </li>
         <li>貼り付け: <kbd>p</kbd>（後） / <kbd>P</kbd>（前）
@@ -231,13 +235,6 @@
         </li>
         <li>モード切替: <kbd>i</kbd>（INSERT） / <kbd>v</kbd>（VISUAL） / <kbd>Esc</kbd>（NORMALへ）</li>
         <li>ステータス: 画面下に <code>Ln, Col, Sel, [+]</code> を表示。行番号は <kbd>:set number</kbd> で切替</li>
-        <li>検索:
-          <ul>
-            <li>開始: <kbd>/</kbd>（前方） / <kbd>?</kbd>（後方） → 文字入力でインクリメンタルサーチ、<kbd>Enter</kbd>で確定、<kbd>Esc</kbd>でキャンセル（元位置に戻る）</li>
-            <li>リピート: <kbd>n</kbd>（直前方向） / <kbd>N</kbd>（逆方向）</li>
-            <li>補足: 検索は先頭/末尾でラップ。インクリメンタルサーチ中は画面プレビューのみで、確定までは n/N の基準を汚さない。</li>
-          </ul>
-        </li>
       </ul>
 
       <h2>VISUAL モード</h2>
@@ -450,6 +447,31 @@ function lineFirstNonBlankByNumber(text, ln){
   return s;
 }
 
+/* PATCH:add-deleteRange */
+// --- 追加: 削除ヘルパとレジスタ（既存が無ければ定義） ---
+if (typeof setRegister !== 'function') {
+  var _REG = { text: '', linewise: false };
+  function setRegister(reg){ _REG = { text: String(reg && reg.text || ''), linewise: !!(reg && reg.linewise) }; }
+  function getRegister(){ return { text: _REG.text, linewise: !!_REG.linewise }; }
+}
+if (typeof deleteRange !== 'function') {
+  function deleteRange(editor, from, to, opts){
+    try{ pushUndo('delete'); }catch(_){ }
+    var v = editor.value || '';
+    var L = v.length|0;
+    from = Math.max(0, Math.min(L, from|0));
+    to   = Math.max(0, Math.min(L, to|0));
+    if (to < from){ var tmp=from; from=to; to=tmp; }
+    var cut = v.slice(from, to);
+    try{ if (typeof setRegister==='function'){ setRegister({ text: cut, linewise: !!(opts && opts.linewise) }); } }catch(_){ }
+    editor.value = v.slice(0, from) + v.slice(to);
+    try{ setCaret(editor, from); }catch(_){ }
+    try{ modifiedCount++; updateModifiedFlag(); }catch(_){ }
+    try{ updateStatus(editor); ensureScrolloff(editor); updateGutter(); }catch(_){ }
+    try{ lastCmd='delete'; lastDeleteLinewise = !!(opts && opts.linewise); }catch(_){ }
+  }
+}
+
 // 行番号ライン範囲削除ヘルパ : startLine, endLine を丸ごと削除
 function deleteLineRange(editor, text, startLine, endLine){
   startLine = startLine|0; endLine = endLine|0;
@@ -538,7 +560,44 @@ function wordRightPos(text,pos){
   }
   return i;
 }
+function posUp(text,pos,lines){
+  lines=lines||1;
+  var start=lineStartIndex(text,pos), col=pos-start, target=pos;
+  for(var n=0;n<lines;n++){
+    var prevEnd=start-1;
+    if(prevEnd<0) break;
+    var prevStart=lineStartIndex(text,prevEnd);
+    var prevLen=prevEnd-prevStart;
+    // VISUALモード時はanchorPosの列を維持できる範囲で移動
+    if(mode===MODE_VISUAL && visualCol!==null){
+      target=prevStart+Math.min(visualCol, prevLen);
+    }else{
+      target=prevStart+Math.min(col,prevLen);
+    }
+    start=prevStart;
+  }
+  return target;
+}
 
+function posDown(text,pos,lines){
+  lines=lines||1;
+  var start=lineStartIndex(text,pos), col=pos-start, target=pos;
+  var nextStart=lineEndIndex(text,pos)+1;
+  for(var n=0;n<lines;n++){
+    if(nextStart<=0||nextStart>text.length) break;
+    var nextEnd=lineEndIndex(text,nextStart);
+    var nextLen=nextEnd-nextStart;
+    // VISUALモード時はanchorPosの列を維持できる範囲で移動
+    if(mode===MODE_VISUAL && visualCol!==null){
+      target=nextStart+Math.min(visualCol, nextLen);
+    }else{
+      target=nextStart+Math.min(col,nextLen);
+    }
+    var afterNext=nextEnd+1;
+    if(afterNext<=text.length) nextStart=afterNext; else break;
+  }
+  return target;
+}
 // 段落（空行区切り）
 function isLineBlank(text, lineStart){ var end=lineEndIndex(text,lineStart); var s=text.slice(lineStart,end); return s.replace(/[ \t\u3000]/g,'').length===0; }
 function paragraphPrev(text,pos){ var curStart=lineStartIndex(text,pos); var j=curStart-1;
@@ -569,6 +628,10 @@ if (typeof isAtLastLineCaret !== 'function') {
 // （追加）isAtLastLineCaret の直後など、既存ユーティリティ付近に挿入
 // --- 最終行判定（行番号のみで判定：末尾の位置に依らず最終行なら true）---
 if (typeof isOnLastLine !== 'function') {
+  function isOnLastLine(text, pos){
+    if (!text) return true;
+    return getLineCol(text, pos).line === totalLines(text);
+  }
 }
 
 // ====== モード管理 ======
@@ -804,6 +867,27 @@ function pasteBefore(editor){
     var ins = pos; // “前”
     pasteInsert(editor, ins, reg.text);
   }
+}
+function openLineBelow(editor){
+  var v = editor.value;
+  var pos = getCaret(editor);
+  setMode(MODE_INSERT, editor);
+  var le = lineEndIndex(v, pos);
+  var ins = (le < v.length) ? le + 1 : v.length;
+  editor.value = v.slice(0, ins) + '\n' + v.slice(ins);
+  setCaret(editor, ins);
+  try{ modifiedCount++; updateModifiedFlag(); }catch(_){ }
+  try{ updateStatus(editor); ensureScrolloff(editor); updateGutter(); }catch(_){ }
+}
+function openLineAbove(editor){
+  var v = editor.value;
+  var pos = getCaret(editor);
+  setMode(MODE_INSERT, editor);
+  var ls = lineStartIndex(v, pos);
+  editor.value = v.slice(0, ls) + '\n' + v.slice(ls);
+  setCaret(editor, ls);
+  try{ modifiedCount++; updateModifiedFlag(); }catch(_){ }
+  try{ updateStatus(editor); ensureScrolloff(editor); updateGutter(); }catch(_){ }
 }
 
 // ====== ステータス・メッセージ・ヘルプ ======
@@ -1461,6 +1545,13 @@ function tryEmacsCtrl(editor,e){
   document.getElementById('cmdline').style.display = 'none';
   document.getElementById('cmdprefix').style.display = 'none';
 
+  // 追加: 起動引数（app.CommandLine）でファイルを開く（存在→読込／非存在→新規）
+  (function(){
+    var a = _getStartupArgFromApp();
+    if (!a) return;
+    var full = _resolveAgainstHtaDir(a);
+    _openFileOrNewOnStartup(full);
+  })();
 
   // --- キー処理（エディタ） ---
   editor.addEventListener('keydown', function(e){
@@ -1515,7 +1606,17 @@ function tryEmacsCtrl(editor,e){
     e.preventDefault(); e.stopPropagation();
 
     // モード切替・ヘルプ・Ex
-    if(lower==='i'){ setMode(MODE_INSERT,editor); return; }
+    if (lower==='i'){
+      if (e.shiftKey || key==='I'){
+        var pI = getCaret(editor);
+        var sI = firstNonBlankPos(text, pI);
+        setCaret(editor, sI);
+        setMode(MODE_INSERT, editor);
+      } else {
+        setMode(MODE_INSERT, editor);
+      }
+      return;
+    }
     if(lower==='v'){ setMode(mode===MODE_VISUAL?MODE_NORMAL:MODE_VISUAL,editor); return; }
     if(key==='Escape'||e.keyCode===27){ setMode(MODE_NORMAL,editor); return; }
     if(key===':'){ openCmdBar(); return; }
@@ -1660,6 +1761,34 @@ function tryEmacsCtrl(editor,e){
      
 
       // --- 演算子 d （次のモーションで削除）---
+      // --- 追加: o/O （行を開いて INSERT） ---
+      // 追加: o/O （行を開いて INSERT）
+      case 'o': {
+        if (mode!==MODE_INSERT){
+          if (e.shiftKey || key==='O') { openLineAbove(editor); } else { openLineBelow(editor); }
+          countBuffer=''; opPending=null; opRepeat=1; gPending=false; return;
+        }
+        break;
+      }
+
+      // --- 追加: a/A （右/行末で INSERT） ---
+      // 追加: a/A （右/行末で INSERT）
+      case 'a': {
+        if (mode!==MODE_INSERT){
+          if (e.shiftKey || key==='A') {
+            var pA = getCaret(editor);
+            var eA = lineEndIndex(text, pA);
+            setCaret(editor, eA);
+            setMode(MODE_INSERT, editor);
+          } else {
+            var p = getCaret(editor);
+            setCaret(editor, Math.min(text.length, p+1));
+            setMode(MODE_INSERT, editor);
+          }
+          countBuffer=''; opPending=null; opRepeat=1; gPending=false; return;
+        }
+        break;
+      }
       case 'd': {
         if (mode!==MODE_INSERT){
           if (opPending === 'd') {
@@ -2125,6 +2254,7 @@ function tryEmacsCtrl(editor,e){
   document.body.addEventListener('keydown', globalEscHandler, true);
   document.addEventListener('keydown', globalEscHandler, true);
 
+  // filepath: c:\Users\ymaru\tedit\tedit\tedit.hta.txt
   // === Command-line completion (GLOBAL) for :e / :e! ===
   var cmdCompl = {
     active:false,
@@ -2756,4 +2886,77 @@ function clearIncPreview(){
           var prevDir = (window.searchState && typeof searchState.dir==='number') ? searchState.dir : 1;
           var fromPos = (typeof window._searchFromPos === 'number')
             ? window._searchFromPos
+            : (ed && typeof getCaret==='function' ? getCaret(ed) : 0);
+
+          if (typeof doSearch === 'function'){
+            doSearch(pat, dir, fromPos, { updateBase:false, inclusive:true, incPreview:true });
+          }
+
+          // フォーカス維持
+          if (document.activeElement !== cmd){
+            cmd.focus();
+            var v = cmd.value || '';
+            if (cmd.setSelectionRange) cmd.setSelectionRange(v.length, v.length);
+          }
+          try{ searchState.pat = prevPat; searchState.dir = prevDir; }catch(e){}
+        }catch(e){}
+      });
+
+      // Esc で解除（プレビュー消去）
+      cmd.addEventListener('keydown', function(ev){
+        var k = ev.keyCode || ev.which;
+        if (k === 27){
+          window._incsearchActive = false;
+          try{ if (typeof clearIncPreview==='function') clearIncPreview(); }catch(e){}
+        }
+      });
+
+      cmd._incBound = true;
+    }catch(e){}
+  }
+
+  // openSearchBar 後にバインド
+  (function(){
+    var _open = window.openSearchBar;
+    if (typeof _open === 'function'){
+      window.openSearchBar = function(dir){
+        var r = _open.apply(this, arguments);
+        try{ setTimeout(ensureBindInc, 0); }catch(e){}
+        return r;
+      };
+    }else{
+      setTimeout(ensureBindInc, 500);
+    }
+  })();
+
+  // runCommand 確定時は incsearch フラグを下ろす（未ヒットならここでメッセージ許可）
+  (function(){
+    var _run = window.runCommand;
+    if (typeof _run === 'function'){
+      window.runCommand = function(cmd){
+        try{ window._incsearchActive = false; }catch(e){}
+        return _run.apply(this, arguments);
+      };
+    }
+  })();
+
+  // showMsg をラップして、incsearch 中の "Pattern not found" を抑止
+  (function(){
+    if (!window._showMsgOrig && typeof window.showMsg === 'function'){
+      window._showMsgOrig = window.showMsg;
+      window.showMsg = function(s, cls, ms){
+        try{
+          if (window._incsearchActive && typeof s === 'string'){
+            var t = s.toLowerCase ? s.toLowerCase() : String(s);
+            if (t.indexOf('pattern not found') >= 0){
+              return; // 抑止
+            }
+          }
+        }catch(e){}
+        return window._showMsgOrig.apply(this, arguments);
+      };
+    }
+  })();
+})();
+</script>
 </html>
