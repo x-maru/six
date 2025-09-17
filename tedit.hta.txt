@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="X-UA-Compatible" content="IE=9">
-<title>Vi-like Text Editor "tedit" v0.3.3 (paste+help)</title>
+<title>Vi-like Text Editor "tedit" v0.3.3</title>
 
 <hta:application
   id="app"
@@ -381,14 +381,32 @@ function doRedo(){
 }
 
 // ====== 基本ユーティリティ ======
+function _getSelStartEndIE(editor){
+  try{
+    if(!editor || !editor.createTextRange) return null;
+    var sel = (document.selection && document.selection.createRange) ? document.selection.createRange() : null;
+    if(!sel) return null;
+    if (sel.parentElement && sel.parentElement() !== editor) return null;
+    var r = editor.createTextRange();
+    r.moveToElementText(editor);
+    r.setEndPoint('EndToStart', sel);
+    var start = r.text.length;
+    var end   = start + sel.text.length;
+    return { s:start, e:end };
+  }catch(_){ return null; }
+}
 function getCaret(editor){
-  if (editor && typeof editor.selectionStart === 'number'){
-    // VISUAL中は選択のアクティブ端（右端）を基準にする
-    if (mode === MODE_VISUAL && editor.selectionStart !== editor.selectionEnd){
-      return editor.selectionEnd;
+  try{
+    if (editor && typeof editor.selectionStart === 'number'){
+      if (typeof mode!=='undefined' && mode===MODE_VISUAL && editor.selectionStart!==editor.selectionEnd) return editor.selectionEnd;
+      return editor.selectionStart;
     }
-    return editor.selectionStart;
-  }
+    var se = (typeof _getSelStartEndIE==='function') ? _getSelStartEndIE(editor) : null;
+    if (se){
+      if (typeof mode!=='undefined' && mode===MODE_VISUAL && se.s!==se.e) return se.e;
+      return se.s;
+    }
+  }catch(_){ }
   return 0;
 }
 
@@ -404,12 +422,41 @@ function getActivePosForDir(editor, dir){
   return getCaret(editor);
 }
 
-function setCaret(editor,pos){ pos=Math.max(0,Math.min(editor.value.length,pos));
-  if (editor.setSelectionRange){ editor.setSelectionRange(pos,pos); return; }
-  var r=editor.createTextRange(); r.collapse(true); r.move('character',pos); r.select(); }
-function setSelection(editor,a,b){ var s=Math.max(0,Math.min(a,b)), e=Math.max(0,Math.max(a,b));
-  if (editor.setSelectionRange){ editor.setSelectionRange(s,e); return; }
-  var r=editor.createTextRange(); r.collapse(true); r.moveStart('character',s); r.moveEnd('character',e-s); r.select(); }
+function setCaret(editor,pos){ pos=Math.max(0,Math.min((editor.value||'').length,pos|0));
+  // TextRange を優先（IE/HTA 安定）
+  if (editor && editor.createTextRange){
+    try{ var r=editor.createTextRange(); r.collapse(true); r.move('character',pos|0); r.select(); }catch(_){ }
+  } else if (editor && editor.setSelectionRange){
+    try{ editor.setSelectionRange(pos,pos); }catch(_){ }
+  }
+  try{ window._lastSelStart=pos|0; window._lastSelEnd=pos|0; window._lastPos=pos|0; }catch(_){ }
+  // 現在バッファへ常時同期（切替時の復元安定化）
+  try{
+    if (typeof Buffers==='object' && Buffers.current>=0){
+      var __b = Buffers.list[Buffers.current];
+      if (__b) { __b.pos=pos|0; __b.selStart=pos|0; __b.selEnd=e|0; __b.scrollTop = editor.scrollTop|0; }
+    }
+  }catch(_){ }
+}
+function setSelection(editor,a,b){
+  var s=(a|0), e=(b|0); if (e<s){ var t=s; s=e; e=t; }
+  var len=(editor.value||'').length|0; s=Math.max(0,Math.min(len,s)); e=Math.max(0,Math.min(len,e));
+  if (editor && editor.createTextRange){
+    try{
+      var r=editor.createTextRange(); r.collapse(true); r.moveStart('character', s); r.moveEnd('character', e-s); r.select();
+    }catch(_){ }
+  } else if (editor && editor.setSelectionRange){
+    try{ editor.setSelectionRange(s,e); }catch(_){ }
+  }
+  try{ window._lastSelStart=s|0; window._lastSelEnd=e|0; window._lastPos=e|0; }catch(_){ }
+  // 現在バッファへ常時同期（切替時の復元安定化）
+  try{
+    if (typeof Buffers==='object' && Buffers.current>=0){
+      var __b = Buffers.list[Buffers.current];
+      if (__b) { __b.pos=e|0; __b.selStart=s|0; __b.selEnd=e|0; __b.scrollTop = editor.scrollTop|0; }
+    }
+  }catch(_){ }
+}
 function lineStartIndex(text,pos){ return text.lastIndexOf('\n', Math.max(0,pos-1)) + 1; }
 function lineEndIndex(text,pos){ var i=text.indexOf('\n', pos); return (i===-1)?text.length:i; }
 function getLineCol(text,pos){ var s=lineStartIndex(text,pos); return { line: text.slice(0,pos).split('\n').length, col: pos - s + 1 }; }
@@ -646,6 +693,211 @@ var opRepeat = 1;
 var gPending = false;
 // 追加: VISUAL選択の“アクティブ端”（直近モーションで動いた側）を保持
 var visActiveEnd = null;
+/* PATCH:buffers */
+// === Buffer manager (Vim-like) ===
+var Buffers = { list: [], current: -1, prev: -1, nextId: 1 };
+function _bufMakeName(path){ return path ? String(path).replace(/^.*[\\\/]/,'') : '[No Name]'; }
+function _bufFindById(id){ id=+id; for(var i=0;i<Buffers.list.length;i++){ if(Buffers.list[i].id===id) return i; } return -1; }
+function _bufFindByPath(path){ for(var i=0;i<Buffers.list.length;i++){ if(Buffers.list[i].path===path) return i; } return -1; }
+function _bufMatches(spec, b){ var s=String(spec||'').toLowerCase(); var name=_bufMakeName(b.path).toLowerCase(); var p=String(b.path||'').toLowerCase(); return (name.indexOf(s)===0)||(p.indexOf(s)===0); }
+function bufFindBySpec(spec){
+  if(spec==='#' && Buffers.prev>=0) return Buffers.prev;
+  if(/^\d+$/.test(spec)) return _bufFindById(parseInt(spec,10));
+  var hits=[],i; for(i=0;i<Buffers.list.length;i++){ if(_bufMatches(spec, Buffers.list[i])) hits.push(i); }
+  if(hits.length===1) return hits[0];
+  return (hits.length===0)?-1:{ ambiguous:true, hits:hits };
+}
+function bufCaptureFromEditor(){
+  var ed=document.getElementById('editor'); if(!ed) return; var idx=Buffers.current; if(idx<0) return;
+  var b=Buffers.list[idx];
+  // cmdline 表示中や editor が非アクティブのときは DOM/IE の selection を使わず、最後に確定した値を優先
+  var cmd=document.getElementById('cmdline');
+  var cmdShown = !!(cmd && (cmd.style.display==='inline-block' || cmd.style.display==='block'));
+  var active = (document.activeElement === ed);
+
+  // 非フォーカス時は DOM/IE 取得を無効化して _last* にフォールバック
+  var sDom = (!cmdShown && active && typeof ed.selectionStart==='number') ? ed.selectionStart : null;
+  var eDom = (!cmdShown && active && typeof ed.selectionEnd  ==='number') ? ed.selectionEnd   : null;
+  var se   = (!cmdShown && active && typeof _getSelStartEndIE==='function') ? _getSelStartEndIE(ed) : null;
+  var sIE  = se ? se.s : null;
+  var eIE  = se ? se.e : null;
+  var sLast= (typeof window._lastSelStart==='number') ? window._lastSelStart : null;
+  var eLast= (typeof window._lastSelEnd  ==='number') ? window._lastSelEnd   : null;
+  var pLast= (typeof window._lastPos     ==='number') ? window._lastPos      : null;
+
+  b.text = ed.value;
+  var Lv = b.text.length|0;
+  var s = (sDom!=null)?sDom : (sIE!=null)?sIE : (sLast!=null)?sLast : 0;
+  var e = (eDom!=null)?eDom : (eIE!=null)?eIE : (eLast!=null)?eLast : s;
+  if (s<0) s=0; if (e<0) e=0; if (s>Lv) s=Lv; if (e>Lv) e=Lv;
+  b.selStart = s|0; b.selEnd = e|0;
+  var p = (eDom!=null)?eDom : (eIE!=null)?eIE : (pLast!=null)?pLast : e;
+  if (p<0) p=0; if (p>Lv) p=Lv; b.pos = p|0;
+  b.scrollTop = ed.scrollTop|0;
+  b.modifiedCount = modifiedCount|0;
+  b.baselineText  = baselineText||'';
+  b.undoStack = (undoStack||[]).slice(0);
+  b.redoStack = (redoStack||[]).slice(0);
+  b.insertSessionActive = !!insertSessionActive;
+  b.path = window._currentFile||b.path||'';
+}
+function bufApplyToEditor(idx){
+  var ed=document.getElementById('editor'); if(!ed) return; var b=Buffers.list[idx]||{};
+  ed.value = String(b.text||'');
+  window._currentFile = b.path||'';
+  var L = ed.value.length|0;
+  var caret = (typeof b.pos==='number') ? (b.pos|0)
+            : (typeof b.selEnd==='number') ? (b.selEnd|0)
+            : (typeof b.selStart==='number') ? (b.selStart|0)
+            : 0;
+  var s = (typeof b.selStart==='number') ? (b.selStart|0) : caret;
+  var e = (typeof b.selEnd  ==='number') ? (b.selEnd  |0) : s;
+  if (s<0) s=0; if (e<0) e=0; if (s>L) s=L; if (e>L) e=L;
+  // 先にスクロール位置を復元（描画前）
+  ed.scrollTop = (typeof b.scrollTop==='number') ? (b.scrollTop|0) : 0;
+  // 状態系
+  baselineText = b.baselineText||'';
+  modifiedCount = b.modifiedCount|0;
+  undoStack = (b.undoStack||[]).slice(0);
+  redoStack = (b.redoStack||[]).slice(0);
+  insertSessionActive = !!b.insertSessionActive;
+  // カーソル/選択の復元
+  try{ ed.focus(); }catch(_){ }
+  if (s!==e){ setSelection(ed, s, e); } else { setCaret(ed, s); }
+  if (typeof updateStatus==='function') updateStatus(ed);
+  try{ window._suppressScrolloffOnce = false; }catch(_){ }
+  if (typeof ensureScrolloff==='function') ensureScrolloff(ed);
+  if (typeof updateGutter==='function') updateGutter();
+  // 遅延で選択とスクロールをもう一度確定（他処理の上書きを抑止）
+  try{
+    (function(ss,ee,cp,st){
+      function applyOnce(){
+        var ed2=document.getElementById('editor'); if(!ed2) return;
+        try{ ed2.focus(); }catch(_){ }
+        if (ss!==ee){ setSelection(ed2, ss, ee); } else { setCaret(ed2, ss); }
+        if (typeof st==='number') ed2.scrollTop = st|0;
+        if (typeof updateStatus==='function') updateStatus(ed2);
+        try{ window._suppressScrolloffOnce = false; }catch(_){ }
+        if (typeof ensureScrolloff==='function') ensureScrolloff(ed2);
+      }
+      setTimeout(applyOnce, 0);
+      setTimeout(applyOnce, 40);
+    })(s,e,caret, (typeof b.scrollTop==='number')?(b.scrollTop|0):0);
+  }catch(_){ }
+}
+
+/* caret-helper-injected */
+function reapplyCaretDeferred(ss, ee, cp){
+  try{ window._pendingSel = { s:(ss|0), e:(ee|0), cp:(cp|0) }; }catch(_){ }
+  function applyOnce(){
+    try{
+      var ed2=document.getElementById('editor'); if(!ed2) return;
+      var LL=ed2.value.length|0;
+      var S=Math.max(0, Math.min(LL, ss|0));
+      var E=Math.max(0, Math.min(LL, ee|0));
+      try{ ed2.focus(); }catch(_){ }
+      if (S!==E){ if (ed2.setSelectionRange) ed2.setSelectionRange(S,E); else if (typeof setSelection==='function') setSelection(ed2,S,E); }
+      else { if (typeof setCaret==='function') setCaret(ed2, S); }
+      if (typeof updateStatus==='function') updateStatus(ed2);
+    }catch(_){ }
+  }
+  setTimeout(applyOnce, 0);
+  setTimeout(applyOnce, 30);
+  setTimeout(applyOnce, 80);
+}
+function bufCreate(opts){
+  var b={ id:Buffers.nextId++, path:(opts&&opts.path)||'', text:(opts&&typeof opts.text==='string')?opts.text:'', pos:0, scrollTop:0,
+    modifiedCount:0, baselineText:(opts&&opts.text)||'', undoStack:[], redoStack:[], insertSessionActive:false };
+  Buffers.list.push(b); return Buffers.list.length-1;
+}
+function bufSwitchToIndex(newIdx){
+  if(newIdx<0||newIdx>=Buffers.list.length) return; if(Buffers.current===newIdx){ updateStatus(document.getElementById('editor')); return; }
+  if (Buffers.current>=0) {
+    try{
+      var __ed = document.getElementById('editor');
+      var __cmd = document.getElementById('cmdline');
+      var __shown  = !!(__cmd && (__cmd.style.display==='inline-block' || __cmd.style.display==='block'));
+      var __active = (document.activeElement === __ed);
+      if (__ed && __active && !__shown){
+        try{
+          var __bcur=(typeof Buffers==='object'&&Buffers.current>=0)?Buffers.list[Buffers.current]:null;
+          var __p=(typeof window._lastPos==='number')?window._lastPos:(__bcur&&typeof __bcur.pos==='number'?__bcur.pos:null);
+          if(__ed && __p!=null){
+            var __L=__ed.value.length|0; var __P=Math.max(0,Math.min(__L,__p|0));
+            if(__ed.setSelectionRange) __ed.setSelectionRange(__P,__P); else if (typeof setCaret==='function') setCaret(__ed,__P);
+          }
+        }catch(_){ }
+        if (typeof updateStatus==='function') updateStatus(__ed);
+        bufCaptureFromEditor();
+      } // それ以外は直近同期値を信頼し保存スキップ
+    }catch(_){ }
+  }
+  Buffers.prev=Buffers.current; Buffers.current=newIdx; bufApplyToEditor(newIdx);
+  try{ window._suppressScrolloffOnce = false; }catch(_){ }
+  // __reapply_after_switch__: 遅延でカーソル/選択を再適用して他処理の上書きを無効化
+  // __reapply_after_switch__: 遅延でカーソル/選択を再適用して他処理の上書きを無効化
+  try{
+    (function(b){
+      var ss = (typeof b.selStart==='number') ? (b.selStart|0) : ((typeof b.pos==='number')?(b.pos|0):0);
+      var ee = (typeof b.selEnd  ==='number') ? (b.selEnd  |0) : ((typeof b.pos==='number')?(b.pos|0):0);
+      var cp = (typeof b.pos     ==='number') ? (b.pos     |0) : 0;
+      function applyOnce(){
+        try{
+          var ed=document.getElementById('editor'); if(!ed) return;
+          try{ ed.focus(); }catch(_){ }
+          if (ss!==ee){ if (typeof setSelection==='function') setSelection(ed, ss, ee); else if (ed.setSelectionRange) ed.setSelectionRange(ss,ee); }
+          else { if (typeof setCaret==='function') setCaret(ed, ss); else if (ed.setSelectionRange) ed.setSelectionRange(ss,ss); }
+          if (typeof updateStatus==='function') updateStatus(ed);
+          if (typeof b.scrollTop==='number') ed.scrollTop = b.scrollTop|0;
+          try{ window._suppressScrolloffOnce = false; }catch(_){ }
+          if (typeof ensureScrolloff==='function') ensureScrolloff(ed);
+        }catch(_){ }
+      }
+      setTimeout(applyOnce, 0);
+      setTimeout(applyOnce, 30);
+      setTimeout(applyOnce, 80);
+    })(Buffers.list[newIdx]||{});
+  }catch(_){ }
+  try{ showMsg('Buffer '+Buffers.list[newIdx].id+': '+_bufMakeName(Buffers.list[newIdx].path), 900); }catch(_){ }
+}
+function bufListString(){
+  var out=[],i; for(i=0;i<Buffers.list.length;i++){
+    var b=Buffers.list[i], cur=(i===Buffers.current)?'% ':'  ';
+    out.push(cur+' '+b.id+' '+_bufMakeName(b.path)+(b.path?(' ('+b.path+')'):'')+(b.modifiedCount>0?' [+]':''));
+  } return out.join(' | ');
+}
+function bufEnsureInitial(){
+  if(Buffers.list.length) return; var ed=document.getElementById('editor'); var idx=bufCreate({ path: window._currentFile||'', text: (ed&&ed.value)||'' }); Buffers.current=idx; bufApplyToEditor(idx);
+}
+function bufOpenFile(path, forceReload){
+  try{
+    var ed=document.getElementById('editor'); var fsoOk=true; try{ new ActiveXObject('Scripting.FileSystemObject'); }catch(_){ fsoOk=false; }
+    if(!fsoOk){ showMsg('File I/O not available',1500); return; }
+    var fso=new ActiveXObject('Scripting.FileSystemObject'); var exists=fso.FileExists(path); var idx=_bufFindByPath(path);
+    if(idx>=0){
+      if(forceReload && exists){
+        var st=new ActiveXObject('ADODB.Stream'); st.Type=2; st.Charset='UTF-8'; st.Open(); st.LoadFromFile(path); var content=st.ReadText(); st.Close();
+        content = content.replace(/\r\n?/g, '\n');
+        var b=Buffers.list[idx]; b.text=content; b.baselineText=content; b.modifiedCount=0; b.undoStack=[]; b.redoStack=[]; b.insertSessionActive=false; b.pos=0; b.scrollTop=0;
+      }
+      bufSwitchToIndex(idx); return;
+    }
+    // reuse current [No Name] buffer if clean (no edits)
+    var text=''; if(exists){ var st2=new ActiveXObject('ADODB.Stream'); st2.Type=2; st2.Charset='UTF-8'; st2.Open(); st2.LoadFromFile(path); text=st2.ReadText(); st2.Close(); }
+    if (Buffers.current>=0){
+      var bcur = Buffers.list[Buffers.current];
+      if ((bcur.path||'')==='' && (bcur.modifiedCount|0)===0){
+        bcur.path = path; bcur.text = text; bcur.baselineText = text; bcur.modifiedCount = 0;
+        bcur.undoStack = []; bcur.redoStack = []; bcur.insertSessionActive=false; bcur.pos=0; bcur.scrollTop=0;
+        bufApplyToEditor(Buffers.current);
+        try{ showMsg('Buffer '+bcur.id+': '+_bufMakeName(bcur.path), 900); }catch(_){ }
+        return;
+      }
+    }
+    // otherwise create a new buffer
+    var newIdx=bufCreate({ path:path, text:text }); bufSwitchToIndex(newIdx);
+  }catch(e){ try{ showMsg('Open failed',1500); }catch(_){ } }
+}
 
 function setMode(newMode, editor){
   var prev = mode;
@@ -902,17 +1154,45 @@ function updateStatus(editor){
     '<button type="button" style="font-size:12px;padding:2px 8px;background:#2b2d31;color:#ddd;border:1px solid #3b3d42;border-radius:4px;cursor:pointer;" '+
     'title="F1 または :help" onclick="showHelp();var sc=document.getElementById(\'helpScroll\');if(sc)sc.focus();return false;">ヘルプ: F1/:help</button>';
   var filename = window._currentFile || '[No Name]';
+  var bprefix = '';
+  try{ if (typeof Buffers==='object' && Buffers.current>=0){ bprefix = '[' + Buffers.list[Buffers.current].id + '] '; } }catch(_){ }
   var modmark = (modifiedCount > 0) ? '[+]' : '';
-  document.getElementById('filename').innerText = filename;
+  document.getElementById('filename').innerText = bprefix + filename;
   document.getElementById('modmark').innerText = modmark;
   document.getElementById('mode').innerText = '['+mode+']';
+  // __bufsync__: updateStatus 実行ごとに現在バッファへカーソル/選択/スクロールを同期
+  try{
+    var ed2 = editor || document.getElementById('editor');
+    if (ed2 && typeof Buffers==='object' && Buffers.current>=0){
+      var b = Buffers.list[Buffers.current];
+      // safer sync: cmdline表示中やeditor非アクティブ時はpos/selを同期しない（0上書き防止）
+      var cmd=document.getElementById('cmdline');
+      var __shown = !!(cmd && (cmd.style.display==='inline-block' || cmd.style.display==='block'));
+      var __active = (document.activeElement === ed2);
+      var __s = null, __e = null;
+      if (!__shown && __active){
+        if (typeof ed2.selectionStart==='number'){
+          __s = ed2.selectionStart;
+          __e = (typeof ed2.selectionEnd==='number') ? ed2.selectionEnd : __s;
+        } else {
+          var __se = (typeof _getSelStartEndIE==='function') ? _getSelStartEndIE(ed2) : null;
+          if (__se){ __s = __se.s; __e = __se.e; }
+        }
+      }
+      if (__s!=null && __e!=null){
+        b.pos = __e; b.selStart = __s; b.selEnd = __e;
+        try{ window._lastSelStart = __s|0; window._lastSelEnd = __e|0; window._lastPos = __e|0; }catch(_){ }
+      }
+      b.scrollTop = ed2.scrollTop|0;
+    }
+  }catch(_){ }
 }
 function showMsg(text, hold){
   var cmdmsg = document.getElementById('cmdmsg');
   cmdmsg.innerText = text;
   cmdmsg.style.display = 'block';
   showMsg._hold = !!hold;
-  setTimeout(function(){ document.getElementById('editor').focus(); }, 0);
+  setTimeout(function(){ var c=document.getElementById('cmdline'); if(c){ var d=c.style.display||''; if(d==='inline-block'||d==='block') return; } var ed=document.getElementById('editor'); if(ed) ed.focus(); }, 0);
   if (!hold) {
     clearTimeout(showMsg._t);
     showMsg._t = setTimeout(function(){
@@ -1228,6 +1508,14 @@ function closeCmdBar(){
   setMode(MODE_NORMAL, document.getElementById('editor'));
   hideMsg();
   document.getElementById('editor').focus(); 
+  try{
+    var ed=document.getElementById('editor');
+    var p=(typeof window._lastPos==='number')?window._lastPos:((typeof Buffers==='object'&&Buffers.current>=0&&Buffers.list[Buffers.current]&&typeof Buffers.list[Buffers.current].pos==='number')?Buffers.list[Buffers.current].pos:null);
+    if(ed && p!=null){
+      var L=ed.value.length|0; var P=Math.max(0,Math.min(L,p|0));
+      if (ed.setSelectionRange) ed.setSelectionRange(P,P); else if (typeof setCaret==='function') setCaret(ed,P);
+    }
+  }catch(_){ }
 }
 
 // コマンド実行
@@ -1260,6 +1548,35 @@ function runCommand(cmd){
   if (s.charAt(0) === ':') s = s.slice(1);
   if (s === '') { closeCmdBar(); return; }
 
+  // --- buffers: :ls / :buffers ---
+  if (/^(ls|buffers)$/i.test(s)){
+    // コマンドバーを:b に切替してバッファ一覧の補完UIを表示
+    var preEl = document.getElementById('cmdprefix');
+    var cmdEl = document.getElementById('cmdline');
+    if (preEl){ preEl.style.display='inline-block'; preEl.innerText=':'; }
+    if (cmdEl){ cmdEl.style.display='inline-block'; cmdEl.value='b '; cmdEl.focus(); }
+    try{ resetCmdCompl(); }catch(_){ }
+    try{ updateCmdCompletions(); }catch(_){ }
+    return;
+  }
+
+  // --- :b / :buffer {spec} ---
+  if (/^b(uffer)?(\s+.*)?$/i.test(s)){
+    var spec = s.replace(/^b(uffer)?/i,'').trim();
+    try{ bufEnsureInitial(); }catch(_){ }
+    if (!spec){
+      closeCmdBar(); try{ showMsg(bufListString(), true); }catch(_){ showMsg('No buffers', 1000); }
+      return;
+    }
+    var idx = bufFindBySpec(spec);
+    if (idx===-1){ closeCmdBar(); showMsg('No such buffer: ' + spec, 1500); return; }
+    if (idx && typeof idx==='object' && idx.ambiguous){
+      var names=[]; for (var i2=0;i2<idx.hits.length;i2++){ var b=Buffers.list[idx.hits[i2]]; names.push(b.id+': '+_bufMakeName(b.path)); }
+      closeCmdBar(); showMsg('Ambiguous: ' + names.join(' , '), 1800); return;
+    }
+    closeCmdBar(); bufSwitchToIndex(idx); return;
+  }
+
   if (/^u$/i.test(s)){
     closeCmdBar();
     doUndo();
@@ -1273,53 +1590,13 @@ function runCommand(cmd){
   }
 
   // :e! / :e! {file}
+  // :e! / :e! {file} → バッファ管理で強制再読込
   if (/^e!/i.test(s)) {
-    // 構文: :e!            → 現在開いているファイルを強制再読込（未保存変更破棄）
-    //       :e! path/to/f  → 指定ファイルを強制読込（未保存変更破棄）
     var tail = s.replace(/^e!/i,'').trim();
     var path = tail || window._currentFile;
-    if (!path) {
-      closeCmdBar();               // 先に閉じて hideMsg を済ませる
-      showMsg('No file name', 1600);
-      return;
-    }
-    try {
-      var fso = new ActiveXObject("Scripting.FileSystemObject");
-      if (!fso.FileExists(path)) {
-        closeCmdBar();
-        showMsg("File not found: " + path, 2000);
-        return;
-      }
-      var stream = new ActiveXObject("ADODB.Stream");
-      stream.Type = 2;
-      stream.Charset = "UTF-8";
-      stream.Open();
-      stream.LoadFromFile(path);
-      var content = stream.ReadText();
-      stream.Close();
-
-      var ed = document.getElementById('editor');
-      ed.value = content;
-      window._currentFile = path;
-
-      // 先にカーソルを先頭へ移動してから baseline / undo を再構築
-      setCaret(ed, 0);
-
-      setBaseline(content);        // modifiedCount=0 にリセット
-      undoStack = [];
-      insertSessionActive = false;
-      pushUndo('initial');         // pos=0 を含む初期スナップショット（Undo でEOFへ飛ばない）
-
-      updateStatus(ed);
-      ensureScrolloff(ed);
-      updateGutter();
-
-      closeCmdBar();
-      showMsg("Reloaded: " + path, 1500);
-    } catch (e) {
-      closeCmdBar();
-      showMsg("Error reloading file", 2000);
-    }
+    if (!path) { closeCmdBar(); showMsg('No file name', 1600); return; }
+    closeCmdBar();
+    try{ bufEnsureInitial(); bufOpenFile(path, true); }catch(_){ showMsg('Reload failed',1500); }
     return;
   }
 
@@ -1329,14 +1606,39 @@ function runCommand(cmd){
   // 数値のみ: 行番号へジャンプ（:99 など）
   if (/^\d+$/.test(s)) {
     var ln = parseInt(s,10);
-    var ed = document.getElementById('editor');
-    var t = ed.value;
-    var pos = lineFirstNonBlankByNumber(t, ln);
-    setCaret(ed, pos);
+    function __posCalc(){
+      try{ var E=document.getElementById('editor'); if(!E) return 0; return lineFirstNonBlankByNumber(E.value, ln); }catch(_){ return 0; }
+    }
+    try{ window._suppressScrolloffOnce = true; }catch(_){ }
     closeCmdBar();
+    function __applyOnce(){
+      try{
+        var E=document.getElementById('editor'); if(!E) return;
+        var p=__posCalc(); var L=E.value.length|0; var P=Math.max(0,Math.min(L,p|0));
+        try{ E.focus(); }catch(_){ }
+        setCaret(E, P);
+        if (typeof updateStatus==='function') updateStatus(E);
+        if (typeof ensureScrolloff==='function') ensureScrolloff(E);
+      }catch(_){ }
+    }
+    __applyOnce(); setTimeout(__applyOnce,0); setTimeout(__applyOnce,40); setTimeout(__applyOnce,90);
     return;
   }
 
+  if (/^dbgpos$/i.test(s)){
+    closeCmdBar();
+    try{
+      var ed=document.getElementById('editor');
+      var cur=(typeof Buffers==='object'&&Buffers.current>=0)?Buffers.list[Buffers.current]:null;
+      var prv=(typeof Buffers==='object'&&Buffers.prev>=0)?Buffers.list[Buffers.prev]:null;
+      var curS=cur?('cur#'+cur.id+' s='+cur.selStart+' e='+cur.selEnd+' p='+cur.pos+' st='+cur.scrollTop):'cur: none';
+      var prvS=prv?(' prev#'+prv.id+' s='+prv.selStart+' e='+prv.selEnd+' p='+prv.pos+' st='+prv.scrollTop):'';
+      var rt='ed sel=['+ (ed?ed.selectionStart:'-') +','+ (ed?ed.selectionEnd:'-') +'] caret='+ (ed?getCaret(ed):'-') +' st='+ (ed?ed.scrollTop:'-');
+      showMsg(curS+prvS+' | '+rt, true);
+      try{ if (ed && typeof updateStatus==='function') updateStatus(ed); }catch(_){ }
+    }catch(_){ showMsg('dbgpos error', 1200); }
+    return;
+  }
   if (/^debugscroll$/i.test(s)){
     closeCmdBar();
     var ed = document.getElementById('editor');
@@ -1404,48 +1706,29 @@ function runCommand(cmd){
     return;
   }
 
-  // === (1) :e / :edit （存在しない場合は新規） ===
+  // :e （引数なし）→ 現在ファイルを未変更なら再読込、変更ありなら警告
+  if (/^e$/i.test(s)){
+    var cur = window._currentFile || '';
+    if (!cur){ closeCmdBar(); showMsg('No file name', 1600); return; }
+    if (modifiedCount > 0){ closeCmdBar(); showMsg('No write since last change (use :e!)', 1800); return; }
+    closeCmdBar();
+    try{ bufEnsureInitial(); bufOpenFile(cur, true); }catch(_){ showMsg('Reload failed',1500); }
+    return;
+  }
+
+  // :e file / :edit file → バッファ管理（既存なら切替・無ければ新規）
   if (/^e(dit)?\s+.+/i.test(s)) {
     try {
       var path = s.replace(/^e(dit)?\s+/i, "").trim();
-      var editor = document.getElementById('editor');
-      var fso = new ActiveXObject("Scripting.FileSystemObject");
-      if (fso.FileExists(path)) {
-        var stream = new ActiveXObject("ADODB.Stream");
-        stream.Type = 2;
-        stream.Charset = "UTF-8";
-        stream.Open();
-        stream.LoadFromFile(path);
-        var content = stream.ReadText();
-        stream.Close();
-        editor.value = content;
-        window._currentFile = path;
-        setCaret(editor, 0);
-        setBaseline(content);
-        undoStack = [];
-        redoStack = [];
-        insertSessionActive = false;
-        pushUndo('initial');
-        updateStatus(editor); ensureScrolloff(editor); updateGutter();
-        showMsg("Loaded: " + path, 1500);
-      } else {
-        // 新規ファイルとして扱う
-        editor.value = '';
-        window._currentFile = path;
-        setCaret(editor, 0);
-        setBaseline('');
-        undoStack = [];
-        redoStack = [];
-        insertSessionActive = false;
-        pushUndo('initial');
-        updateStatus(editor); ensureScrolloff(editor); updateGutter();
-        showMsg("New file: " + path, 1500);
-      }
+      closeCmdBar();
+      bufEnsureInitial();
+      bufOpenFile(path, false);
+      return;
     } catch(e) {
+      closeCmdBar();
       showMsg("Error loading file", 2000);
+      return;
     }
-    closeCmdBar();
-    return;
   }
 
   // quit
@@ -1525,6 +1808,11 @@ function tryEmacsCtrl(editor,e){
 // ====== INIT ======
 (function init(){
   var editor=document.getElementById('editor');
+  try{ if (window.app){
+    try{ if (String(app.border||'').toLowerCase()!=='thick') app.border='thick'; }catch(_){ }
+    try{ app.caption='yes'; app.sysmenu='yes'; app.maximizeButton='yes'; app.minimizeButton='yes'; }catch(_){ }
+    try{ if (String(app.windowState||'').toLowerCase()!=='normal') app.windowState='normal'; }catch(_){ }
+  } }catch(_){ }
   editor.value =
     '# Vi-like Text Editor "tedit" v0.3.3 (paste+help)\n' +
     '行番号: :set number / :set nonumber（起動時は number=on）。wrap=off 前提。\n' +
@@ -1544,6 +1832,7 @@ function tryEmacsCtrl(editor,e){
   // ステータスバー初期表示
   document.getElementById('cmdline').style.display = 'none';
   document.getElementById('cmdprefix').style.display = 'none';
+  try{ bufEnsureInitial(); }catch(_){ }
 
   // 追加: 起動引数（app.CommandLine）でファイルを開く（存在→読込／非存在→新規）
   (function(){
@@ -1555,7 +1844,7 @@ function tryEmacsCtrl(editor,e){
 
   // --- キー処理（エディタ） ---
   editor.addEventListener('keydown', function(e){
-    if(document.getElementById('cmdbar').style.display==='flex') return;
+    var __cmd=document.getElementById('cmdline'); if(__cmd && (__cmd.style.display==='inline-block'||__cmd.style.display==='block')) return;
     if(tryEmacsCtrl(editor,e)) return;
 
     var key = (typeof e.key==='string')?e.key:String.fromCharCode(e.keyCode);
@@ -2026,9 +2315,21 @@ function tryEmacsCtrl(editor,e){
     modifiedCount++; updateModifiedFlag();
   });
   editor.addEventListener('click',  function(){ updateStatus(editor); ensureScrolloff(editor); if(mode!==MODE_VISUAL) anchorPos=null; });
-  window.addEventListener('resize', function(){ updateGutter(); });
+  window.addEventListener('resize', function(){
+    try{ updateGutter(); }catch(_){ }
+    try{ var ed=document.getElementById('editor'); if(ed){ if(typeof updateStatus==='function') updateStatus(ed); if(typeof ensureScrolloff==='function') ensureScrolloff(ed); } }catch(_){ }
+  });
   // 行番号表示のためのイベント
   editor.addEventListener('keyup', function(){ updateGutter(); });
+  editor.addEventListener('blur', function(){ try{ bufCaptureFromEditor(); }catch(_){ } });
+  editor.addEventListener('focus', function(){
+    try{
+      if (window._pendingSel){
+        var ps = window._pendingSel; window._pendingSel=null;
+        if (typeof reapplyCaretDeferred==='function') reapplyCaretDeferred(ps.s|0, ps.e|0, ps.cp|0);
+      }
+    }catch(_){ }
+  });
 
   // ペースト：INSERT 以外は拒否。INSERT では LF 正規化。
   editor.addEventListener('paste', function(e){
@@ -2077,6 +2378,14 @@ function tryEmacsCtrl(editor,e){
       hideMsg();
       setTimeout(function(){
         document.getElementById('editor').focus();
+  try{
+    var ed=document.getElementById('editor');
+    var p=(typeof window._lastPos==='number')?window._lastPos:((typeof Buffers==='object'&&Buffers.current>=0&&Buffers.list[Buffers.current]&&typeof Buffers.list[Buffers.current].pos==='number')?Buffers.list[Buffers.current].pos:null);
+    if(ed && p!=null){
+      var L=ed.value.length|0; var P=Math.max(0,Math.min(L,p|0));
+      if (ed.setSelectionRange) ed.setSelectionRange(P,P); else if (typeof setCaret==='function') setCaret(ed,P);
+    }
+  }catch(_){ }
       }, 0);
       e.preventDefault();
       e.stopPropagation();
@@ -2131,6 +2440,8 @@ function tryEmacsCtrl(editor,e){
       // prefix（: / ?）を付けて runCommand へ
       var preEl = document.getElementById('cmdprefix');
       var pref = (preEl && preEl.style.display!=='none') ? (preEl.innerText||preEl.textContent||'') : '';
+      // 補完アクティブ時は現在候補を確定してから実行
+      try{ if (typeof cmdCompl==='object' && cmdCompl.active) commitCmdCompletion(); }catch(_){ }
       runCommand((pref||'') + (cmd.value||''));
       return;
     }
@@ -2206,6 +2517,14 @@ function tryEmacsCtrl(editor,e){
     if (e.key === 'Escape' && showMsg._hold) {
       hideMsg();
       document.getElementById('editor').focus();
+  try{
+    var ed=document.getElementById('editor');
+    var p=(typeof window._lastPos==='number')?window._lastPos:((typeof Buffers==='object'&&Buffers.current>=0&&Buffers.list[Buffers.current]&&typeof Buffers.list[Buffers.current].pos==='number')?Buffers.list[Buffers.current].pos:null);
+    if(ed && p!=null){
+      var L=ed.value.length|0; var P=Math.max(0,Math.min(L,p|0));
+      if (ed.setSelectionRange) ed.setSelectionRange(P,P); else if (typeof setCaret==='function') setCaret(ed,P);
+    }
+  }catch(_){ }
       e.preventDefault();
       e.stopPropagation();
     }
@@ -2225,6 +2544,14 @@ function tryEmacsCtrl(editor,e){
         openCmdBar();
       } else {
         document.getElementById('editor').focus();
+  try{
+    var ed=document.getElementById('editor');
+    var p=(typeof window._lastPos==='number')?window._lastPos:((typeof Buffers==='object'&&Buffers.current>=0&&Buffers.list[Buffers.current]&&typeof Buffers.list[Buffers.current].pos==='number')?Buffers.list[Buffers.current].pos:null);
+    if(ed && p!=null){
+      var L=ed.value.length|0; var P=Math.max(0,Math.min(L,p|0));
+      if (ed.setSelectionRange) ed.setSelectionRange(P,P); else if (typeof setCaret==='function') setCaret(ed,P);
+    }
+  }catch(_){ }
       }
       e.preventDefault();
       e.stopPropagation();
@@ -2243,6 +2570,14 @@ function tryEmacsCtrl(editor,e){
       hideMsg();
       setTimeout(function(){
         document.getElementById('editor').focus();
+  try{
+    var ed=document.getElementById('editor');
+    var p=(typeof window._lastPos==='number')?window._lastPos:((typeof Buffers==='object'&&Buffers.current>=0&&Buffers.list[Buffers.current]&&typeof Buffers.list[Buffers.current].pos==='number')?Buffers.list[Buffers.current].pos:null);
+    if(ed && p!=null){
+      var L=ed.value.length|0; var P=Math.max(0,Math.min(L,p|0));
+      if (ed.setSelectionRange) ed.setSelectionRange(P,P); else if (typeof setCaret==='function') setCaret(ed,P);
+    }
+  }catch(_){ }
       }, 0);
       e.preventDefault();
       e.stopPropagation();
@@ -2259,6 +2594,7 @@ function tryEmacsCtrl(editor,e){
   var cmdCompl = {
     active:false,
     list:[],
+    labels:[],
     index:-1,
     head:'',
     typed:'',
@@ -2322,8 +2658,15 @@ function tryEmacsCtrl(editor,e){
     var html=[];
     for(var i=0;i<list.length;i++){
       var sel=(i===cmdCompl.index);
-      html.push('<div style="padding:2px 4px;'+(sel?'background:#3a3d42;color:#fff;':'')+'">'+
-              escapeHtml(list[i])+'</div>');
+      var raw=(cmdCompl.labels && cmdCompl.labels[i])?cmdCompl.labels[i]:list[i];
+      var isCur = (raw && raw.substr(0,2)==='% ');
+      var rest  = (raw && raw.length>=2) ? raw.substr(2) : '';
+      var rowBg = sel ? '#3a3d42' : '#202124';
+      var prefixHtml = isCur
+        ? '<span>% </span>'
+        : '<span style="color:'+rowBg+'">% </span>'; // 非現在は背景と同色で見えなくする
+      var row = '<div style="padding:2px 4px;'+(sel?'background:#3a3d42;color:#fff;':'')+'">'+ prefixHtml + escapeHtml(rest) +'</div>';
+      html.push(row);
     }
     box.innerHTML=html.join('');
     box.style.display='block';
@@ -2335,58 +2678,41 @@ function tryEmacsCtrl(editor,e){
 
   // （置換）updateCmdCompletions（グローバル定義側）: head をコロン無しで保持
   function updateCmdCompletions(){
-    var cmdEl = document.getElementById('cmdline');
-    if(!cmdEl) return;
-
-    // 先頭コロンは無視許容（内部表現はコロン無し）
+    var cmdEl=document.getElementById('cmdline'); if(!cmdEl) return;
     var raw = cmdEl.value.replace(/^:/,'');
+    // :ls / :buffers → :b に変換して UI を出す
+    if (/^(ls|buffers)\s*$/i.test(raw)){ cmdEl.value='b '; raw='b '; }
+
+    // :b / :buffer の補完（バッファ一覧）
+    var mB = raw.match(/^(b(uffer)?)\s*(.*)$/i);
+    if (mB){
+      var typed = mB[3] || '';
+      var data = (typeof buildBufferCompletions==='function') ? buildBufferCompletions(typed) : {values:[],labels:[]};
+      if (!data.values.length){ resetCmdCompl(); cmdCompl.head='b '; cmdCompl.typed=typed; return; }
+      var idx = cmdCompl.index; if (!cmdCompl.active || idx==null || idx<0 || idx>=data.values.length) idx=0;
+      cmdCompl.active=true; cmdCompl.list=data.values; cmdCompl.labels=data.labels; cmdCompl.index=idx; cmdCompl.head='b '; cmdCompl.typed=typed;
+      showCmdCompletions(cmdCompl.list);
+      return;
+    }
+
+    // 既存: :e / :e! のファイル補完
     var m = raw.match(/^(e!?)(\s+)(.*)$/i);
-    if(!m){
-      resetCmdCompl();
-      return;
-    }
-    var head  = m[1] + m[2]; // "e " / "e! "
+    if(!m){ resetCmdCompl(); return; }
+    var head  = m[1] + m[2];
     var typed = m[3];
-
-    // 動的に毎回候補を再構築
     var list = buildFileCompletions(typed);
-    if(!list.length){
-      // 候補無し → 新規ファイル名の可能性を残すため一覧だけ消す
-      resetCmdCompl();
-      // head / typed の記録だけは保持（後で Tab したら再開できる）
-      cmdCompl.head = head;
-      cmdCompl.typed = typed;
-      return;
-    }
-
-    // 既存 index を極力維持。typed 前方一致でなくなったら最初にマッチする候補へ。
+    if(!list.length){ resetCmdCompl(); cmdCompl.head=head; cmdCompl.typed=typed; return; }
     var idx = cmdCompl.index;
-    var needRecalc = (
-      !cmdCompl.active ||
-      idx == null ||
-      idx < 0 ||
-      idx >= list.length ||
-      (typed && list[idx].toLowerCase().indexOf(typed.toLowerCase()) !== 0)
-    );
-
+    var needRecalc = (!cmdCompl.active || idx==null || idx<0 || idx>=list.length || (typed && list[idx].toLowerCase().indexOf(typed.toLowerCase())!==0));
     if (needRecalc){
       idx = -1;
       if (typed){
         var low = typed.toLowerCase();
-        for (var i=0;i<list.length;i++){
-          if (list[i].toLowerCase().indexOf(low) === 0){ idx = i; break; }
-        }
+        for (var i2=0;i2<list.length;i2++){ if (list[i2].toLowerCase().indexOf(low)===0){ idx=i2; break; } }
       }
-      if (idx === -1) idx = 0;
+      if (idx===-1) idx=0;
     }
-
-    cmdCompl.active = true;
-    cmdCompl.list   = list;
-    cmdCompl.index  = idx;
-    cmdCompl.head   = head;
-    cmdCompl.typed  = typed;
-
-    // ここで applyCurrentCandidate() を呼ばない（＝入力欄内容はユーザ入力を保持）
+    cmdCompl.active=true; cmdCompl.list=list; cmdCompl.labels=[]; cmdCompl.index=idx; cmdCompl.head=head; cmdCompl.typed=typed;
     showCmdCompletions(list);
   }
 
@@ -2482,43 +2808,7 @@ function tryEmacsCtrl(editor,e){
 
   function _openFileOrNewOnStartup(path){
     if(!path) return;
-    try{
-      var editor = document.getElementById('editor');
-      var fso = new ActiveXObject("Scripting.FileSystemObject");
-      if (fso.FileExists(path)) {
-        var stream = new ActiveXObject("ADODB.Stream");
-        stream.Type = 2;
-        stream.Charset = "UTF-8";
-        stream.Open();
-        stream.LoadFromFile(path);
-        var content = stream.ReadText();
-        stream.Close();
-
-        editor.value = content;
-        window._currentFile = path;
-        setCaret(editor, 0);
-        setBaseline(content);
-        undoStack = [];
-        redoStack = [];
-        insertSessionActive = false;
-        pushUndo('initial');
-        updateStatus(editor); ensureScrolloff(editor); updateGutter();
-        showMsg("Loaded: " + path, 1500);
-      } else {
-        editor.value = '';
-        window._currentFile = path;
-        setCaret(editor, 0);
-        setBaseline('');
-        undoStack = [];
-        redoStack = [];
-        insertSessionActive = false;
-        pushUndo('initial');
-        updateStatus(editor); ensureScrolloff(editor); updateGutter();
-        showMsg("New file: " + path, 1500);
-      }
-    } catch(e){
-      showMsg("Startup open failed", 1800);
-    }
+    try{ bufEnsureInitial(); bufOpenFile(path, false); } catch(e){ showMsg("Startup open failed", 1800); }
   }
 
   // 起動引数からのファイルオープン（app.CommandLine 対応）
@@ -2531,6 +2821,28 @@ function tryEmacsCtrl(editor,e){
     }catch(e){}
   })();
 })();
+
+  function buildBufferCompletions(prefix){
+    var vals=[], labels=[];
+    try{
+      var p = String(prefix||'').toLowerCase();
+      for(var i=0;i<Buffers.list.length;i++){
+        var b = Buffers.list[i];
+        var id = String(b.id);
+        var name = (_bufMakeName(b.path)||'[No Name]');
+        var path = String(b.path||'');
+        var cur = (i===Buffers.current)?'% ':'  ';
+        var mod = (b.modifiedCount>0)?' [+]':'';
+        var label = cur+' '+id+' '+name+(path?(' ('+path+')'):'')+mod;
+        // フィルタ: id 前方一致 / name 前方一致 / path 前方一致（p 空なら全件）
+        var lowName=name.toLowerCase(), lowPath=path.toLowerCase();
+        if (!p || id.indexOf(p)===0 || lowName.indexOf(p)===0 || lowPath.indexOf(p)===0){
+          vals.push(id); labels.push(label);
+        }
+      }
+    }catch(_){ }
+    return { values: vals, labels: labels };
+  }
 // インクリメンタルサーチ: /,? 入力中に1文字ごとに一時ジャンプ（確定は Enter、Esc で元に戻す）
 function bindCmdlineIncSearch(){
   var cmd = document.getElementById('cmdline');
