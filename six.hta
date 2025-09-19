@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="X-UA-Compatible" content="IE=11">
-<title>Vi-like Text Editor "tedit" v0.3.3</title>
+<title>Vi-like Text Editor "six" v0.3.3</title>
 <hta:application
   id="app"
-  applicationname="tedit"
+  applicationname="six"
   border="thin"
   caption="yes"
   sysmenu="yes"
@@ -22,6 +22,12 @@
     font-family: Consolas, "Courier New", monospace;
   }
   #pane { position: relative; height: 100%; }
+  /* 本文ストライプ（偶数行デバッグ用オーバーレイ） */
+  #edstripe {
+    position: absolute; top: 0; bottom: 0; left: 0; right: 0;
+    pointer-events: none; z-index: 0; /* editor(=1) の下, gutter(z=2) の下 */
+    background-repeat: repeat;
+  }
   /* 行番号ガター */
   #gutter {
     position: absolute; top: 0; bottom: 0; left: 0;
@@ -36,8 +42,9 @@
     position: absolute; top: 0; bottom: 0; right: 0; left: 0;
     width: 100%; height: 100%;
     box-sizing: border-box; padding: 10px; padding-left: 82px; /* number=on */
-    background: #1e1f22; color: #ddd; border: none; outline: none; resize: none;
+    background: transparent; color: #ddd; border: none; outline: none; resize: none;
     font-size: 21px; line-height: 1.6; caret-color: #fff;
+    z-index: 1; /* ストライプより上に表示 */
   }
   /* コマンドバー（:） */
   #cmdbar {
@@ -184,6 +191,7 @@
     </div>
   </div>
   <div id="pane">
+    <div id="edstripe"></div>
     <div id="gutter"></div>
     <textarea id="editor" spellcheck="false" wrap="off"
       placeholder="ここにテキストを入力…&#10;NORMALでは h j k l / ←↓↑→ / w b / ^ 0 $ / gg G、行挿入 o/O、挿入 a/A、行頭 I。&#10;/ と ? で検索、n/N で次/前。&#10;i で INSERT、Esc で NORMAL。:w で保存、:help でヘルプ。"></textarea>
@@ -194,10 +202,10 @@
       <h2>ヘルプ</h2>
       <h2>起動時オプション（ファイルを渡して開く）</h2>
       <ul>
-        <li>同フォルダ: <code>tedit.hta README.txt</code></li>
-        <li>フルパス: <code>mshta.exe "C:\path\to\tedit.hta" "C:\path\to\memo.txt"</code></li>
+        <li>同フォルダ: <code>six.hta README.txt</code></li>
+        <li>フルパス: <code>mshta.exe "C:\path\to\six.hta" "C:\path\to\memo.txt"</code></li>
         <li>空白を含むパスは引用符で囲む</li>
-        <li>相対パスは「tedit.hta のあるフォルダ」を基準に解決</li>
+        <li>相対パスは「six.hta のあるフォルダ」を基準に解決</li>
         <li>存在すれば <strong>Loaded:</strong>、無ければ <strong>New file:</strong>（編集フラグ=0で開始）</li>
       </ul>
       <h2>NORMAL モード</h2>
@@ -1288,9 +1296,11 @@ function toggleHelp(){ var h=document.getElementById('help'); h.style.display = 
 function updateGutter() {
   var gutter = document.getElementById('gutter');
   var editor = document.getElementById('editor');
+  var stripe = document.getElementById('edstripe');
   if (!OPT.number) {
     gutter.style.display='none';
     editor.style.paddingLeft='10px';
+    if (stripe) stripe.style.display='none';
     return;
   }
   gutter.style.display='block';
@@ -1298,20 +1308,48 @@ function updateGutter() {
   var text = editor.value;
   var total = totalLines(text);
   var lh = getLineHeightPx(editor);
+  // 小数pxを維持してテキストと完全一致させる
+  var lhExact = (lh && isFinite(lh) && lh > 0) ? lh : 16;
+  // エディタの上パディングをガターにも適用（基準位置を揃える）
+  var padTop = 0; try{ var cs = window.getComputedStyle?getComputedStyle(editor):editor.currentStyle; padTop = parseFloat(cs.paddingTop)||0; }catch(_){ }
+  gutter.style.paddingTop = (padTop|0) + 'px';
+  // 本文/ガター両方の行高を明示指定（px, 小数可）
+  try{ editor.style.lineHeight = lhExact + 'px'; }catch(_){ }
+  gutter.style.lineHeight = lhExact + 'px';
   // ステータスバー高さ差し引き
-  var STATUSBAR_H = 28;
+  var STATUSBAR_H = (function(){ var cb=document.getElementById('cmdbar'); return cb && cb.offsetHeight ? cb.offsetHeight|0 : 28; })();
   var effHeight = editor.clientHeight - STATUSBAR_H;
-  if (effHeight < lh) effHeight = lh;
-  var startLine = Math.floor(editor.scrollTop / lh);
-  var visible = Math.ceil(effHeight / lh) + 1;
+  if (effHeight < lhExact) effHeight = lhExact;
+  var startLine = Math.floor(editor.scrollTop / lhExact);
+  var visible = Math.ceil(effHeight / lhExact) + 1;
   var endLine = Math.min(total, startLine + visible);
   var html = [];
   for (var ln = startLine + 1; ln <= endLine; ln++) {
-    html.push('<div class="ln">' + ln + '</div>');
+    var isEven = (ln % 2 === 0);
+    var bg = isEven ? 'background:darkSlateGray;' : '';
+    html.push('<div class="ln" style="height:'+lhExact+'px;line-height:'+lhExact+'px;'+bg+'">' + ln + '</div>');
   }
   gutter.innerHTML = html.join('');
-  var offset = -(editor.scrollTop % lh);
-  gutter.style.transform = 'translateY(' + offset + 'px)';
+  // スクロール端数のみ逆方向に移動（基準は padding-top 同期済み）
+  var offset = -(editor.scrollTop % lhExact);
+  gutter.style.transform = 'translateY(' + (offset) + 'px)';
+  // 本文側の偶数行ストライプをオーバーレイで可視化
+  if (stripe){
+    stripe.style.display='block';
+    var padLeft = 82; // number=on 左パディング
+    try{ var cs2 = window.getComputedStyle?getComputedStyle(editor):editor.currentStyle; padLeft = parseFloat(cs2.paddingLeft)||82; }catch(_){ }
+    stripe.style.left = '0px';
+    stripe.style.right = '0px';
+    stripe.style.top = '0px';
+    stripe.style.bottom = '0px';
+    // ガターを除いた本文領域だけにストライプを出したいが、簡便に全体でOK
+    var color = 'darkSlateGray';
+    var size = lhExact*2; // 2行で1周期
+    var bg = 'repeating-linear-gradient( to bottom, transparent 0px, transparent '+lhExact+'px, '+color+' '+lhExact+'px, '+color+' '+(lhExact*2)+'px )';
+    stripe.style.backgroundImage = bg;
+    stripe.style.backgroundSize = 'auto '+(size)+'px';
+    stripe.style.backgroundPositionY = ((padTop - (editor.scrollTop % (lhExact*2)))) + 'px';
+  }
 }
 // ====== scrolloff（表示端からの余白スクロール） ======
 /* PATCH:getScrolloff */
@@ -1342,7 +1380,7 @@ function ensureScrolloff(editor){
         pos = (typeof editor.selectionEnd==='number') ? editor.selectionEnd : getCaret(editor);
       }
     var cursorLine = getLineCol(text,pos).line;
-    var STATUSBAR_H = 28;          // 下部バー高さ
+  var STATUSBAR_H = (function(){ var cb=document.getElementById('cmdbar'); return cb && cb.offsetHeight ? cb.offsetHeight|0 : 28; })();
     var clientH = editor.clientHeight;
     var visibleH = clientH - STATUSBAR_H;
     if (visibleH < lh) visibleH = lh;
@@ -1640,7 +1678,7 @@ function runCommand(cmd){
     var lh = getLineHeightPx(ed);
     var ch = ed.clientHeight;
     var sh = ed.scrollHeight;
-    var STATUSBAR_H = 28;
+    var STATUSBAR_H = (function(){ var cb=document.getElementById('cmdbar'); return cb && cb.offsetHeight ? cb.offsetHeight|0 : 28; })();
     var effH = ch - STATUSBAR_H;
     var tl = totalLines(ed.value);
     var pos = getCaret(ed);
@@ -1822,7 +1860,7 @@ function ensureWindowResizer(){
     try{ if (String(app.windowState||'').toLowerCase()!=='normal') app.windowState='normal'; }catch(_){ }
   } }catch(_){ }
   editor.value =
-    '# Vi-like Text Editor "tedit" v0.3.3 (paste+help)\n' +
+    '# Vi-like Text Editor "six" v0.3.3 (paste+help)\n' +
     '行番号: :set number / :set nonumber（起動時は number=on）。wrap=off 前提。\n' +
     '移動: h j k l / ←↓↑→ / w b / ^（先頭非空白）/ 0 / $ / 段落 { }\n' +
     'モード: i → INSERT, v → VISUAL, Esc → NORMAL\n' +
@@ -2529,7 +2567,6 @@ function ensureWindowResizer(){
   window.addEventListener('keydown', globalEscHandler, true);
   document.body.addEventListener('keydown', globalEscHandler, true);
   document.addEventListener('keydown', globalEscHandler, true);
-  // filepath: c:\Users\ymaru\tedit\tedit\tedit.hta.txt
   // === Command-line completion (GLOBAL) for :e / :e! ===
   var cmdCompl = {
     active:false,
