@@ -4,7 +4,6 @@
 <meta charset="utf-8" />
 <meta http-equiv="X-UA-Compatible" content="IE=11">
 <title>Vi-like Text Editor "tedit" v0.3.3</title>
-
 <hta:application
   id="app"
   applicationname="tedit"
@@ -14,7 +13,6 @@
   singleinstance="yes"
   scroll="no"
 />
-
 <style>
   html, body {
     height: 100%;
@@ -24,7 +22,6 @@
     font-family: Consolas, "Courier New", monospace;
   }
   #pane { position: relative; height: 100%; }
-
   /* 行番号ガター */
   #gutter {
     position: absolute; top: 0; bottom: 0; left: 0;
@@ -34,7 +31,6 @@
     z-index: 2; /* ←追加 */
   }
   #gutter .ln { height: 1.6em; }
-
   /* 本文 */
   #editor {
     position: absolute; top: 0; bottom: 0; right: 0; left: 0;
@@ -43,7 +39,6 @@
     background: #1e1f22; color: #ddd; border: none; outline: none; resize: none;
     font-size: 21px; line-height: 1.6; caret-color: #fff;
   }
-
   /* コマンドバー（:） */
   #cmdbar {
     position: absolute; left: 0; right: 0; bottom: 0;
@@ -115,7 +110,6 @@
     z-index: 12;
     height: 28px;
   }
-
   /* ヘルプオーバーレイ */
   #help {
     position: absolute; left: 5%; right: 5%; top: 8%; bottom: 8%;
@@ -142,14 +136,12 @@
   #helpKeys {
     float: left; color: #bbb; font-size: 15px; line-height: 32px;
   }
-
   /* ちょいメッセージ（右下トースト） */
   #msg {
     position: absolute; right: 12px; bottom: 40px; z-index: 5;
     background: #2b2d31; border: 1px solid #3b3d42; color: #ddd;
     padding: 6px 10px; border-radius: 4px; font-size: 12px; display: none;
   }
-
   /* ステータスバー */
   #statusbar {
     position: absolute; left: 0; right: 0; bottom: 0;
@@ -191,18 +183,15 @@
       <input id="cmdline" type="text" style="display:none" />
     </div>
   </div>
-
   <div id="pane">
     <div id="gutter"></div>
     <textarea id="editor" spellcheck="false" wrap="off"
       placeholder="ここにテキストを入力…&#10;NORMALでは h j k l / ←↓↑→ / w b / ^ 0 $ / gg G、行挿入 o/O、挿入 a/A、行頭 I。&#10;/ と ? で検索、n/N で次/前。&#10;i で INSERT、Esc で NORMAL。:w で保存、:help でヘルプ。"></textarea>
   </div>
-
   <!-- ヘルプ（最小の“使えるコマンド一覧”） -->
   <div id="help">
     <div id="helpScroll" tabindex="0">
       <h2>ヘルプ</h2>
-
       <h2>起動時オプション（ファイルを渡して開く）</h2>
       <ul>
         <li>同フォルダ: <code>tedit.hta README.txt</code></li>
@@ -211,7 +200,6 @@
         <li>相対パスは「tedit.hta のあるフォルダ」を基準に解決</li>
         <li>存在すれば <strong>Loaded:</strong>、無ければ <strong>New file:</strong>（編集フラグ=0で開始）</li>
       </ul>
-
       <h2>NORMAL モード</h2>
       <ul>
         <li>移動: <kbd>h</kbd>/<kbd>j</kbd>/<kbd>k</kbd>/<kbd>l</kbd>（<kbd>←</kbd>/<kbd>↓</kbd>/<kbd>↑</kbd>/<kbd>→</kbd> でも可）</li>
@@ -240,7 +228,6 @@
         <li>モード切替: <kbd>i</kbd>（INSERT） / <kbd>v</kbd>（VISUAL） / <kbd>Esc</kbd>（NORMALへ）</li>
         <li>ステータス: 画面下に <code>Ln, Col, Sel, [+]</code> を表示。行番号は <kbd>:set number</kbd> で切替</li>
       </ul>
-
       <h2>VISUAL モード</h2>
       <ul>
         <li>開始/終了: <kbd>v</kbd> で開始 / <kbd>Esc</kbd> で終了</li>
@@ -250,7 +237,6 @@
         <li>貼り付け: <kbd>p</kbd>/<kbd>P</kbd> は選択範囲を置換</li>
         <li>カウント: 数字前置でモーションに適用（例: 5<kbd>j</kbd>）</li>
       </ul>
-
       <h2>:コマンド</h2>
       <ul>
         <li><kbd>:e</kbd> file … ファイルを開く（無ければ新規空で開始）
@@ -264,13 +250,13 @@
         <li><kbd>:w</kbd> / <kbd>:w</kbd> path … UTF-8（LF）で保存。保存後は編集フラグクリア＆Undo基点再構築</li>
         <li><kbd>:set number</kbd> / <kbd>:set nonumber</kbd> … 行番号表示の切替</li>
         <li><kbd>:set clipboard=os</kbd> / <kbd>:set clipboard=internal</kbd> … クリップボード同期先</li>
+        <li><kbd>:set scrolloff=数字</kbd> … 画面端からの余白行数（既定=99999）</li>
         <li><kbd>:123</kbd> … 指定行へジャンプ（先頭非空白）</li>
         <li><kbd>:u</kbd> / <kbd>:redo</kbd> … Undo / Redo</li>
         <li><kbd>:help</kbd> … このヘルプを表示</li>
         <li><kbd>:q</kbd> / <kbd>:q!</kbd> … 終了（未保存変更を破棄して強制終了するには <kbd>:q!</kbd>）</li>
         <li><kbd>:debugscroll</kbd> … スクロール境界のデバッグ情報を表示</li>
       </ul>
-
       <p>注: ActiveX（FileSystemObject / ADODB.Stream）が無効な環境では、ファイル操作と補完は動作しません。</p>
     </div>
     <div id="helpFooter">
@@ -288,17 +274,24 @@
       <button onclick="hideHelp()">閉じる (Esc)</button>
     </div>
   </div>
-
   <div id="msg"></div>
-
 <script>
+
+// PATCH: define symbols used unquoted in motion blocks (w/b 等の互換用)
+// 既に存在する場合は上書きしない（HTA/IE11 想定）
+try{ if (typeof d==='undefined')     { window.d='d'; } }catch(_){ var d='d'; }
+try{ if (typeof up==='undefined')    { window.up='up'; } }catch(_){ var up='up'; }
+try{ if (typeof down==='undefined')  { window.down='down'; } }catch(_){ var down='down'; }
+try{ if (typeof left==='undefined')  { window.left='left'; } }catch(_){ var left='left'; }
+try{ if (typeof right==='undefined') { window.right='right'; } }catch(_){ var right='right'; }
+
 // ====== オプション（:set 相当） ======
 var OPT = {
   number: true,          // 行番号
   fileformat: 'unix',    // v1は LF 固定 ('unix')。将来 'dos' なら CRLF 正規化へ
-  clipboard: 'internal'  // 'internal' or 'os'（y/d 実装時に反映）
+  clipboard: 'internal', // 'internal' or 'os'（y/d 実装時に反映）
+  scrolloff: 99999  // 既定の scrolloff
 };
-
 // （置換）Undo 定義ブロック（modifiedCount ～ doUndo まで）を Redo 対応版に差し替え
 var modifiedCount = 0;           // 0 = クリーン (>0 = 変更あり)
 var baselineText = '';           // 保存/読込直後の内容
@@ -306,7 +299,6 @@ var UNDO_MAX = 200;
 var undoStack = [];
 var redoStack = [];              // ★追加
 var insertSessionActive = false;
-
 function updateModifiedFlag(){
   window.modified = (modifiedCount > 0);
 }
@@ -318,7 +310,6 @@ function setBaseline(text){
   redoStack = [];
   // 既存 undoStack も初期化（呼び出し側で pushUndo('initial') する想定）
 }
-
 function pushUndo(reason){
   var ed = document.getElementById('editor');
   if(!ed) return;
@@ -333,7 +324,6 @@ function pushUndo(reason){
   // 新しい編集開始で redo は失効
   if (redoStack.length) redoStack = [];
 }
-
 function doUndo(){
   var ed = document.getElementById('editor');
   if(!ed || !undoStack.length){
@@ -347,7 +337,6 @@ function doUndo(){
     mcount: modifiedCount
   });
   if (redoStack.length > UNDO_MAX) redoStack.shift();
-
   var snap = undoStack.pop();
   ed.value = snap.text;
   setCaret(ed, Math.min(snap.pos, ed.value.length));
@@ -359,7 +348,6 @@ function doUndo(){
   if (typeof ensureScrolloff==='function') ensureScrolloff(ed);
   if (typeof updateGutter==='function') updateGutter();
 }
-
 function doRedo(){
   var ed = document.getElementById('editor');
   if(!ed || !redoStack.length){
@@ -373,7 +361,6 @@ function doRedo(){
     mcount: modifiedCount
   });
   if (undoStack.length > UNDO_MAX) undoStack.shift();
-
   var snap = redoStack.pop();
   ed.value = snap.text;
   setCaret(ed, Math.min(snap.pos, ed.value.length));
@@ -385,7 +372,6 @@ function doRedo(){
   if (typeof ensureScrolloff==='function') ensureScrolloff(ed);
   if (typeof updateGutter==='function') updateGutter();
 }
-
 // ====== 基本ユーティリティ ======
 function _getSelStartEndIE(editor){
   try{
@@ -415,7 +401,6 @@ function getCaret(editor){
   }catch(_){ }
   return 0;
 }
-
 // VISUAL時は移動方向ごとに基準端を選ぶ（左/上=selectionStart、右/下=selectionEnd）
 function getActivePosForDir(editor, dir){
   // VISUAL中は“アクティブ端”を優先（直前モーションで動いた側を基準にする）
@@ -427,7 +412,6 @@ function getActivePosForDir(editor, dir){
   }
   return getCaret(editor);
 }
-
 function setCaret(editor,pos){ pos=Math.max(0,Math.min((editor.value||'').length,pos|0));
   // TextRange を優先（IE/HTA 安定）
   if (editor && editor.createTextRange){
@@ -440,7 +424,7 @@ function setCaret(editor,pos){ pos=Math.max(0,Math.min((editor.value||'').length
   try{
     if (typeof Buffers==='object' && Buffers.current>=0){
       var __b = Buffers.list[Buffers.current];
-      if (__b) { __b.pos=pos|0; __b.selStart=pos|0; __b.selEnd=e|0; __b.scrollTop = editor.scrollTop|0; }
+      if (__b) { __b.pos=pos|0; __b.selStart=pos|0; __b.selEnd=pos|0; __b.scrollTop = editor.scrollTop|0; }
     }
   }catch(_){ }
 }
@@ -470,7 +454,6 @@ function getLineHeightPx(editor){ var cs = window.getComputedStyle?getComputedSt
   var lh=parseFloat(cs.lineHeight); if(!lh||isNaN(lh)){ var fs=parseFloat(cs.fontSize)||21; lh=Math.round(fs*1.6); } return lh; }
 function isSpace(ch){ return ch===' '||ch==='\t'||ch==='\u3000'; }
 function firstNonBlankPos(text,pos){ var s=lineStartIndex(text,pos), e=lineEndIndex(text,pos), i=s; while(i<e && isSpace(text[i])) i++; return i; }
-
 // 追加/置換: 行数関連ユーティリティ（末尾改行は余分に数えない）
 function totalLines(text){
   if(!text || text.length===0) return 1;
@@ -499,7 +482,6 @@ function lineFirstNonBlankByNumber(text, ln){
   while(s<e && isSpace(text[s])) s++;
   return s;
 }
-
 /* PATCH:add-deleteRange */
 // --- 追加: 削除ヘルパとレジスタ（既存が無ければ定義） ---
 if (typeof setRegister !== 'function') {
@@ -524,7 +506,6 @@ if (typeof deleteRange !== 'function') {
     try{ lastCmd='delete'; lastDeleteLinewise = !!(opts && opts.linewise); }catch(_){ }
   }
 }
-
 // 行番号ライン範囲削除ヘルパ : startLine, endLine を丸ごと削除
 function deleteLineRange(editor, text, startLine, endLine){
   startLine = startLine|0; endLine = endLine|0;
@@ -540,13 +521,11 @@ function deleteLineRange(editor, text, startLine, endLine){
   if (endIdx < text.length) endIdx = endIdx + 1;
   deleteRange(editor, startIdx, endIdx, { linewise: true });
 }
-
 // ==== 日本語対応の語移動ヘルパ ====
 // サロゲートペア対応コードポイント処理
 function _cpAt(str,i){ var hi=str.charCodeAt(i); if(hi>=0xD800&&hi<=0xDBFF&&i+1<str.length){ var lo=str.charCodeAt(i+1); if(lo>=0xDC00&&lo<=0xDFFF){ return (hi-0xD800)*0x400+(lo-0xDC00)+0x10000; } } return hi; }
 function _nextIndex(str,i){ if(i>=str.length) return str.length; var hi=str.charCodeAt(i); if(hi>=0xD800&&hi<=0xDBFF&&i+1<str.length){ var lo=str.charCodeAt(i+1); if(lo>=0xDC00&&lo<=0xDFFF) return i+2; } return i+1; }
 function _prevIndex(str,i){ if(i<=0) return 0; var lo=str.charCodeAt(i-1); if(lo>=0xDC00&&lo<=0xDFFF&&i-2>=0){ var hi=str.charCodeAt(i-2); if(hi>=0xD800&&hi<=0xDBFF) return i-2; } return i-1; }
-
 // 語クラス判定
 var _WT_SPACE=0,_WT_NL=1,_WT_ALNUM=2,_WT_KANA=3,_WT_HAN=4,_WT_SYMBOL=5;
 function _isSpaceCp(cp){ return cp===0x20||cp===0x09||cp===0x3000; }
@@ -565,7 +544,6 @@ function _wordTypeAt(str,i){
   if(_isHanCp(cp)) return _WT_HAN;
   return _WT_SYMBOL;
 }
-
 // b: 前の語頭へ（空白・改行を飛ばし、直前の語ブロックの先頭へ）
 function wordLeftPos(text,pos){
   var i=pos;
@@ -588,7 +566,6 @@ function wordLeftPos(text,pos){
   }
   return j;
 }
-
 // w: 次の語頭へ（現語ブロックの末尾→後続の空白/改行を飛ばして次の語頭）
 function wordRightPos(text,pos){
   var n=text.length, i=pos;
@@ -631,7 +608,6 @@ function posUp(text,pos,lines){
   }
   return target;
 }
-
 function posDown(text,pos,lines){
   lines=lines||1;
   var start=lineStartIndex(text,pos), col=pos-start, target=pos;
@@ -660,7 +636,6 @@ function paragraphNext(text,pos){ var i=lineEndIndex(text,pos)+1;
   while(i<=text.length){ if(i>=text.length){ var lastStart=text.lastIndexOf('\n')+1; return firstNonBlankPos(text,lastStart); }
     var ls=i, le=lineEndIndex(text,ls); if(isLineBlank(text,ls)){ var k=le+1; while(k<=text.length && isLineBlank(text,k)) k=lineEndIndex(text,k)+1;
       return firstNonBlankPos(text, Math.min(k,text.length)); } i=le+1; } return pos; }
-
 // --- 最終行終端判定（Ctrl+N / w で末行から“下”に抜けるのを防止）---
 if (typeof isAtLastLineCaret !== 'function') {
   function isAtLastLineCaret(text, pos){
@@ -677,7 +652,6 @@ if (typeof isAtLastLineCaret !== 'function') {
     return pos >= text.length;
   }
 }
-
 // （追加）isAtLastLineCaret の直後など、既存ユーティリティ付近に挿入
 // --- 最終行判定（行番号のみで判定：末尾の位置に依らず最終行なら true）---
 if (typeof isOnLastLine !== 'function') {
@@ -686,7 +660,6 @@ if (typeof isOnLastLine !== 'function') {
     return getLineCol(text, pos).line === totalLines(text);
   }
 }
-
 // ====== モード管理 ======
 var MODE_NORMAL='NORMAL', MODE_INSERT='INSERT', MODE_VISUAL='VISUAL';
 var mode = MODE_NORMAL, anchorPos=null, visualCol = null, opPending = null, lastMotionDir = null; // ←追加: 直前の移動方向を記憶
@@ -720,7 +693,6 @@ function bufCaptureFromEditor(){
   var cmd=document.getElementById('cmdline');
   var cmdShown = !!(cmd && (cmd.style.display==='inline-block' || cmd.style.display==='block'));
   var active = (document.activeElement === ed);
-
   // 非フォーカス時は DOM/IE 取得を無効化して _last* にフォールバック
   var sDom = (!cmdShown && active && typeof ed.selectionStart==='number') ? ed.selectionStart : null;
   var eDom = (!cmdShown && active && typeof ed.selectionEnd  ==='number') ? ed.selectionEnd   : null;
@@ -730,7 +702,6 @@ function bufCaptureFromEditor(){
   var sLast= (typeof window._lastSelStart==='number') ? window._lastSelStart : null;
   var eLast= (typeof window._lastSelEnd  ==='number') ? window._lastSelEnd   : null;
   var pLast= (typeof window._lastPos     ==='number') ? window._lastPos      : null;
-
   b.text = ed.value;
   var Lv = b.text.length|0;
   var s = (sDom!=null)?sDom : (sIE!=null)?sIE : (sLast!=null)?sLast : 0;
@@ -791,7 +762,6 @@ function bufApplyToEditor(idx){
     })(s,e,caret, (typeof b.scrollTop==='number')?(b.scrollTop|0):0);
   }catch(_){ }
 }
-
 /* caret-helper-injected */
 function reapplyCaretDeferred(ss, ee, cp){
   try{ window._pendingSel = { s:(ss|0), e:(ee|0), cp:(cp|0) }; }catch(_){ }
@@ -907,12 +877,10 @@ function bufOpenFile(path, forceReload){
     var newIdx=bufCreate({ path:path, text:text }); bufSwitchToIndex(newIdx);
   }catch(e){ try{ showMsg('Open failed',1500); }catch(_){ } }
 }
-
 function setMode(newMode, editor){
   var prev = mode;
   mode=newMode;
   document.getElementById('mode').innerText='['+mode+']';
-
   if(mode===MODE_INSERT){
     if(!insertSessionActive){
       pushUndo('insert-begin');
@@ -938,7 +906,6 @@ function setMode(newMode, editor){
   lastCmd='other';
   updateStatus(editor); ensureScrolloff(editor);
 }
-
 function posUp(text,pos,lines){
   lines=lines||1;
   var start=lineStartIndex(text,pos), col=pos-start, target=pos;
@@ -957,7 +924,6 @@ function posUp(text,pos,lines){
   }
   return target;
 }
-
 function posDown(text,pos,lines){
   lines=lines||1;
   var start=lineStartIndex(text,pos), col=pos-start, target=pos;
@@ -977,7 +943,6 @@ function posDown(text,pos,lines){
   }
   return target;
 }
-
 // === 検索状態とヘルパ ===
 var searchState = { pat: '', dir: 1 }; // dir: 1=forward, -1=backward
 function doSearch(pattern, dir, fromPos, opts){
@@ -986,21 +951,16 @@ function doSearch(pattern, dir, fromPos, opts){
     if (!ed){ return; }
     var text = ed.value;
     var n = text.length;
-
     if (!pattern){ showMsg('No search pattern', 1200); return; }
-
     // 基準方向更新（/:? 確定時のみ）
     if (opts && opts.updateBase){
       searchState.dir = (dir >= 0) ? 1 : -1;
     }
     searchState.pat = pattern;
-
     var inclusive = !!(opts && opts.inclusive);
     var pos = (typeof fromPos === 'number') ? fromPos : getCaret(ed);
-
     // 検索前スクロール位置（可視内ヒット時の自動スクロール打消しに使用）
     var prevST = (typeof window._searchFromScrollTop === 'number') ? window._searchFromScrollTop : ed.scrollTop;
-
     var idx = -1;
     if (dir >= 0){
       var start = inclusive ? pos : Math.min(n, pos + 1);
@@ -1015,33 +975,31 @@ function doSearch(pattern, dir, fromPos, opts){
       idx = text.lastIndexOf(pattern, startB);
       if (idx < 0) idx = text.lastIndexOf(pattern); // wrap
     }
-
     if (idx >= 0){
       var end = idx + pattern.length;
       setSelection(ed, idx, end);
       setCaret(ed, idx);
       updateStatus(ed);
+    // PATCH: 検索ヒット時にもスクロール余白/センタリングを反映
+    try { lastMotionDir = (dir >= 0) ? down : up; } catch(_) {}
+    try { ensureScrolloff(ed); } catch(_) {}
       try{ window._incLastMiss=false; window._incLastHit=true; window._incLastIdx=idx; }catch(_){ }
-
       // incsearch プレビュー（未確定時のハイライトとスクロール抑制）
       if (opts && opts.incPreview){
         try{
           var lc = getLineCol(text, idx);
           renderIncPreviewRange(lc.line, lc.col, pattern.length);
-
           var lh = getLineHeightPx(ed);
           if (lh && isFinite(lh) && lh > 0){
             var STATUSBAR_H = 28;
             var visibleH = ed.clientHeight - STATUSBAR_H;
             if (visibleH < lh) visibleH = lh;
-
             // 検索開始時のスクロール基準で可視範囲判定
             var startLine = Math.floor(prevST / lh) + 1;
             var visLines  = Math.max(1, Math.ceil(visibleH / lh));
             var endLine   = startLine + visLines - 1;
             var hitLine   = getLineCol(text, idx).line;
             var withinView = (hitLine >= startLine && hitLine <= endLine);
-
             if (withinView){
               ed.scrollTop = prevST;     // 自動スクロールを打消し
             }else{
@@ -1054,7 +1012,6 @@ function doSearch(pattern, dir, fromPos, opts){
       }
       return;
     }
-
     // 未ヒット: incsearch 中は静かに終了（復帰してメッセージ抑止）
     if (opts && opts.incPreview){
       try{ window._incLastMiss = true; }catch(_){}
@@ -1073,12 +1030,10 @@ function doSearch(pattern, dir, fromPos, opts){
       }catch(_){}
       return;
     }
-
     // 通常検索（確定）時のみメッセージ表示
     showMsg('Pattern not found: ' + pattern, 1400);
   }catch(_){}
 }
-
 // 貼り付け実装
 function pasteInsert(editor, insPos, t){
   pushUndo('paste');
@@ -1096,7 +1051,6 @@ function pasteAfter(editor){
   var v = editor.value;
   var s = editor.selectionStart, en = editor.selectionEnd;
   var pos = getCaret(editor);
-
   // VISUAL中は選択置換
   if (mode === MODE_VISUAL && s !== en){
     editor.value = v.slice(0, s) + v.slice(en);
@@ -1116,7 +1070,6 @@ function pasteBefore(editor){
   var v = editor.value;
   var s = editor.selectionStart, en = editor.selectionEnd;
   var pos = getCaret(editor);
-
   // VISUAL中は選択置換
   if (mode === MODE_VISUAL && s !== en){
     editor.value = v.slice(0, s) + v.slice(en);
@@ -1151,7 +1104,6 @@ function openLineAbove(editor){
   try{ modifiedCount++; updateModifiedFlag(); }catch(_){ }
   try{ updateStatus(editor); ensureScrolloff(editor); updateGutter(); }catch(_){ }
 }
-
 // ====== ステータス・メッセージ・ヘルプ ======
 function updateStatus(editor){
   var start=editor.selectionStart!=null?editor.selectionStart:getCaret(editor);
@@ -1211,7 +1163,6 @@ function showMsg(text, hold){
     }, 1200);
   }
 }
-
 // --- 追加: 一時メッセージ（キー入力または時間で自動消去） ---
 function showMsgAuto(text, ms){
   try{ showMsg(text, true); }catch(_){ }
@@ -1230,14 +1181,12 @@ function showMsgAuto(text, ms){
   var t = (ms && ms>0) ? ms : 1500;
   setTimeout(clearAll, t);
 }
-
 function hideMsg(){
   var cmdmsg = document.getElementById('cmdmsg');
   cmdmsg.innerText = '';
   cmdmsg.style.display = 'none';
   showMsg._hold = false;
 }
-
 function showHelp(){
   var h = document.getElementById('help');
   h.style.display = 'block';
@@ -1252,15 +1201,12 @@ function hideHelp(){
   hideMsg();
 }
 function toggleHelp(){ var h=document.getElementById('help'); h.style.display = (h.style.display==='block'?'none':'block'); }
-
 // === ヘルプ用キーバインド（j/k/↓/↑/gg/G/ESC のみ受け付け） ===
 (function bindHelpKeys(){
     var help = document.getElementById('help');
     var sc = document.getElementById('helpScroll');
     if (!help || !sc) return;
-
     var helpGPending = false; // gg 判定
-
     function helpLineHeight(){
       var cs = window.getComputedStyle ? getComputedStyle(help) : help.currentStyle;
       var lh = parseFloat(cs.lineHeight);
@@ -1270,14 +1216,12 @@ function toggleHelp(){ var h=document.getElementById('help'); h.style.display = 
       }
       return lh;
     }
-
     function handleHelpKey(e){
       if (help.style.display !== 'block') return;
       var k = e.key || '';
       var kc = e.keyCode || 0;
       var lh = helpLineHeight();
       var handled = true;
-
       // ESC → ヘルプを閉じてエディタへ
       if (k === 'Escape' || kc === 27){
         hideHelp();
@@ -1330,19 +1274,16 @@ function toggleHelp(){ var h=document.getElementById('help'); h.style.display = 
       else {
         handled = true;
       }
-
       if (handled){
         e.preventDefault();
         e.stopPropagation();
         if (e.stopImmediatePropagation) e.stopImmediatePropagation();
       }
     }
-
     // ヘルプ自体とスクロール領域の両方で捕捉（フォーカス漏れ対策）
     help.addEventListener('keydown', handleHelpKey, true);
     sc.addEventListener('keydown', handleHelpKey, true);
   })();
-
 // ====== ガター ======
 function updateGutter() {
   var gutter = document.getElementById('gutter');
@@ -1372,9 +1313,15 @@ function updateGutter() {
   var offset = -(editor.scrollTop % lh);
   gutter.style.transform = 'translateY(' + offset + 'px)';
 }
-
-
 // ====== scrolloff（表示端からの余白スクロール） ======
+/* PATCH:getScrolloff */
+function getScrolloff(){
+  try{
+    var n = (typeof OPT==='object' && typeof OPT.scrolloff==='number') ? (OPT.scrolloff|0) : 3;
+    if (!(n>=0)) n = 0;
+    return n;
+  }catch(_){ return 3; }
+}
 function ensureScrolloff(editor){
   try{
     // ワンショット抑止（/:? 閉じや Esc 取消直後の強制スクロールを回避）
@@ -1382,50 +1329,79 @@ function ensureScrolloff(editor){
     // ワンショット抑止（/:? 閉じや Esc 取消直後の強制スクロールを回避）
     var lh = getLineHeightPx(editor);
     if(!lh || !isFinite(lh) || lh<=0) return;
-
     var text = editor.value;
     var total = totalLines(text);
-    var pos  = (typeof editor.selectionEnd==='number')?editor.selectionEnd:getCaret(editor);
+      var pos;
+      if (typeof mode!=='undefined' && mode===MODE_VISUAL && editor.selectionStart!==editor.selectionEnd){
+        if (typeof visActiveEnd==='string'){
+          pos = (visActiveEnd==='start') ? editor.selectionStart : editor.selectionEnd;
+        } else {
+          pos = (lastMotionDir==='up'||lastMotionDir==='left') ? editor.selectionStart : editor.selectionEnd;
+        }
+      } else {
+        pos = (typeof editor.selectionEnd==='number') ? editor.selectionEnd : getCaret(editor);
+      }
     var cursorLine = getLineCol(text,pos).line;
-
     var STATUSBAR_H = 28;          // 下部バー高さ
     var clientH = editor.clientHeight;
     var visibleH = clientH - STATUSBAR_H;
     if (visibleH < lh) visibleH = lh;
-
     var curTop = editor.scrollTop;
     var realMax = editor.scrollHeight - clientH;
     if (realMax < 0) realMax = 0;
-
     var cursorTop    = (cursorLine - 1) * lh;
     var cursorBottom = cursorTop + lh;
-
     var desiredTop = curTop;
-    var scrolloffLines = 3;
+    var scrolloffLines = getScrolloff();
     var upMarginPx   = scrolloffLines * lh;
     var downMarginPx = scrolloffLines * lh;
-
     var isLastLine = (cursorLine === total);
-
+        /* PATCH:center scrolloff (vim-9999) */
+        var visLines = Math.max(1, Math.ceil(visibleH / lh));
+        var centerThreshold = Math.floor((visLines - 1) / 2);
+        if (scrolloffLines >= centerThreshold){
+          // センタリング適用判定（垂直移動時のみ）
+          var half = Math.max(0, Math.floor((visibleH - lh)/2));
+          var centerTop = cursorTop - half;
+          if (centerTop < 0) centerTop = 0;
+          if (centerTop > realMax) centerTop = realMax;
+          var applyCenter = false;
+          try{ applyCenter = (typeof lastMotionDir==='string' && (lastMotionDir==='up' || lastMotionDir==='down')); }catch(_){ }
+          if (applyCenter){
+            if (Math.abs(centerTop - curTop) >= 0.5) editor.scrollTop = centerTop;
+            return;
+          } else {
+            // 水平移動（h/l, 0, $ など）では余白は無視し、可視範囲内に収めるだけにする
+            var viewBottomNV = curTop + visibleH;
+            if (cursorTop < curTop){
+              editor.scrollTop = Math.max(0, Math.min(realMax, cursorTop));
+              return;
+            }
+            if (cursorBottom > viewBottomNV){
+              editor.scrollTop = Math.max(0, Math.min(realMax, cursorBottom - visibleH));
+              return;
+            }
+            // 既に見えているなら何もしない
+            return;
+          }
+        }
     if (isLastLine){
-      // 行が完全に見えるように: 行底を (visibleH - (任意の余白)) 内に入れる
-      // 下端ギリ配置ではなく 1 行分余裕を持たせる: 行底が (cursorBottom) → desiredTop = cursorBottom - (visibleH - lh)
-      desiredTop = cursorBottom - (visibleH - lh);
-      // これで行上端 = desiredTop + 0 となり必ず可視
+      // 最終行でも scrolloff を考慮（満たせない場合は可能な範囲で）
+      var viewBottom = curTop + visibleH;
+      // 通常行と同じ式で「下側余白」を優先しつつ、境界でクランプ
+      desiredTop = cursorBottom + downMarginPx - visibleH;
       if (desiredTop < 0) desiredTop = 0;
       if (desiredTop > realMax) desiredTop = realMax;
-
-      // 万一 行上端がさらに上すぎて（丸ごと見えているのに余白過多）なら調整
+      // 行の上端が隠れてしまう場合は行上端まで持ち上げる（行全体が可視に）
       if (cursorTop < desiredTop){
         desiredTop = cursorTop;
-        if (desiredTop > realMax) desiredTop = realMax;
         if (desiredTop < 0) desiredTop = 0;
+        if (desiredTop > realMax) desiredTop = realMax;
       }
-
-      // 行底が隠れている場合の再補正
-      var viewBottom = desiredTop + visibleH;
+      // 念のため、行底が隠れるケースをもう一度補正
+      viewBottom = desiredTop + visibleH;
       if (cursorBottom > viewBottom){
-        desiredTop = cursorBottom - (visibleH - 0); // もう一度
+        desiredTop = cursorBottom - (visibleH - downMarginPx);
         if (desiredTop < 0) desiredTop = 0;
         if (desiredTop > realMax) desiredTop = realMax;
       }
@@ -1442,13 +1418,11 @@ function ensureScrolloff(editor){
       if (desiredTop < 0) desiredTop = 0;
       if (desiredTop > realMax) desiredTop = realMax;
     }
-
     if (Math.abs(desiredTop - curTop) >= 0.5){
       editor.scrollTop = desiredTop;
     }
   }catch(_){}
 }
-
 // ====== コマンドバー ======
 function openCmdBar(){
   hideMsg();
@@ -1460,8 +1434,6 @@ function openCmdBar(){
   inp.value='';
   inp.focus();
 }
-
-
 // 検索バー（/ または ?）
 function openSearchBar(dir){
   hideMsg();
@@ -1485,7 +1457,6 @@ function openSearchBar(dir){
   if (typeof bindCmdlineEsc==='function') setTimeout(bindCmdlineEsc, 0);
   if (typeof bindCmdlineIncSearch==='function') setTimeout(bindCmdlineIncSearch, 0);
 }
-
 // コマンドライン ESC 取消バインド
 function bindCmdlineEsc(){
   var cmd = document.getElementById('cmdline');
@@ -1507,7 +1478,6 @@ function bindCmdlineEsc(){
         }
       }
       window._searchFromPos = undefined;
-
       closeCmdBar();
       var ed2 = document.getElementById('editor');
       if(ed2) ed2.focus();
@@ -1517,7 +1487,6 @@ function bindCmdlineEsc(){
   });
   cmd._escBound = true;
 }
-
 // openCmdBar 呼出後に確実に ESC バインド（init 末尾 or openCmdBar 内後段）
 (function(){
   var _origOpen = openCmdBar;
@@ -1527,7 +1496,6 @@ function bindCmdlineEsc(){
     setTimeout(bindCmdlineEsc, 0);
   };
 })();
-
 function closeCmdBar(){
   var inp=document.getElementById('cmdline');
   inp.blur();
@@ -1547,37 +1515,41 @@ function closeCmdBar(){
     }
   }catch(_){ }
 }
-
 // コマンド実行
 function runCommand(cmd){
   var s = (cmd || '').trim();
+  /* PATCH: scrolloff early :set guard (colon/alias/space-aware) */
+  if (/^:?\s*set\s+(scrolloff|so)\s*=\s*\d+\s*$/i.test(s)){
+    var n = parseInt(s.replace(/^:?\s*set\s+(scrolloff|so)\s*=\s*/i, ""), 10);
+    if (!(n>=0)) n = 0;
+    try{ if (typeof OPT!=='object') window.OPT = {}; }catch(_){ }
+    OPT.scrolloff = n;
+    try{ showMsg("scrolloff=" + n, 1200); }catch(_){ }
+    try{ closeCmdBar(); }catch(_){ }
+    return;
+  }
   // /pattern と ?pattern
   if (s.charAt(0) === '/' || s.charAt(0) === '?'){
     var dir = (s.charAt(0) === '/') ? 1 : -1;
     var pat = s.slice(1);
-
     // openSearchBar 時に保存した位置を優先（なければ現在位置）
     var ed = document.getElementById('editor');
     var fromPos = (typeof window._searchFromPos === 'number')
       ? window._searchFromPos
       : (ed ? getCaret(ed) : undefined);
-
     window._suppressScrolloffOnce = true;  // コマンドバー閉鎖時の強制スクロールを1回抑止
     closeCmdBar();
     if (pat) searchState.pat = pat;
     if (!searchState.pat){ showMsg('No search pattern', 1200); return; }
-
     // 包含開始＋基準方向更新（/:? 用）
     doSearch(searchState.pat, dir, fromPos, { updateBase: true, inclusive: true });
     try{ clearIncPreview(); }catch(_){ }
     window._searchFromScrollTop = undefined;  // 後片付け
-
     window._searchFromPos = undefined; // 後片付け
     return;
   }
   if (s.charAt(0) === ':') s = s.slice(1);
   if (s === '') { closeCmdBar(); return; }
-
   // --- buffers: :ls / :buffers ---
   if (/^(ls|buffers)$/i.test(s)){
     // コマンドバーを:b に切替してバッファ一覧の補完UIを表示
@@ -1589,7 +1561,6 @@ function runCommand(cmd){
     try{ updateCmdCompletions(); }catch(_){ }
     return;
   }
-
   // --- :b / :buffer {spec} ---
   if (/^b(uffer)?(\s+.*)?$/i.test(s)){
     var spec = s.replace(/^b(uffer)?/i,'').trim();
@@ -1606,19 +1577,16 @@ function runCommand(cmd){
     }
     closeCmdBar(); bufSwitchToIndex(idx); return;
   }
-
   if (/^u$/i.test(s)){
     closeCmdBar();
     doUndo();
     return;
   }
-
   if (/^re?do$/i.test(s)){  // :redo / :redo
     closeCmdBar();
     doRedo();
     return;
   }
-
   // :e! / :e! {file}
   // :e! / :e! {file} → バッファ管理で強制再読込
   if (/^e!/i.test(s)) {
@@ -1629,10 +1597,8 @@ function runCommand(cmd){
     try{ bufEnsureInitial(); bufOpenFile(path, true); }catch(_){ showMsg('Reload failed',1500); }
     return;
   }
-
   // help
   if (/^(help|\?)$/i.test(s)) { closeCmdBar(); showHelp(); return; }
-
   // 数値のみ: 行番号へジャンプ（:99 など）
   if (/^\d+$/.test(s)) {
     var ln = parseInt(s,10);
@@ -1654,7 +1620,6 @@ function runCommand(cmd){
     __applyOnce(); setTimeout(__applyOnce,0); setTimeout(__applyOnce,40); setTimeout(__applyOnce,90);
     return;
   }
-
   if (/^dbgpos$/i.test(s)){
     closeCmdBar();
     try{
@@ -1684,7 +1649,6 @@ function runCommand(cmd){
     showMsg('lh='+lh+' ch='+ch+' sh='+sh+' effH='+effH+' scrollTop='+ed.scrollTop+' maxST='+maxST+' line='+line+'/'+tl, true);
     return;
   }
-
   // set number / nonumber / clipboard
   var m = s.match(/^set\s+(.+)$/i);
   if (m) {
@@ -1693,9 +1657,14 @@ function runCommand(cmd){
     if (arg==='nonumber' || arg==='nonu') { OPT.number=false; updateGutter(); closeCmdBar(); return; }
     if (arg==='clipboard=os') { OPT.clipboard='os'; showMsg('clipboard=os', 1200); closeCmdBar(); return; }
     if (arg==='clipboard=internal') { OPT.clipboard='internal'; showMsg('clipboard=internal', 1200); closeCmdBar(); return; }
+    if (/^(scrolloff|so)\s*=\s*\d+\s*$/i.test(arg)){
+      var mso = arg.match(/^(scrolloff|so)\s*=\s*(\d+)\s*$/i);
+      var n = mso ? parseInt(mso[2], 10) : 3; if (!(n>=0)) n = 0;
+      try{ if (typeof OPT!=='object') window.OPT = {}; }catch(_){ }
+      OPT.scrolloff = n; showMsg('scrolloff='+n, 1200); closeCmdBar(); return;
+    }
     showMsg('unknown option: ' + arg, 1400); closeCmdBar(); return;
   }
-
   // === (3) :w / :w! / :w {path} ===
   if (/^w!?(\s+.*)?$/i.test(s)){
     var force = /!/.test(s.split(/\s+/)[0]); // 現状 force で上書き判定差は付けない（予約）
@@ -1735,7 +1704,6 @@ function runCommand(cmd){
     closeCmdBar();
     return;
   }
-
   // :e （引数なし）→ 現在ファイルを未変更なら再読込、変更ありなら警告
   if (/^e$/i.test(s)){
     var cur = window._currentFile || '';
@@ -1745,7 +1713,6 @@ function runCommand(cmd){
     try{ bufEnsureInitial(); bufOpenFile(cur, true); }catch(_){ showMsg('Reload failed',1500); }
     return;
   }
-
   // :e file / :edit file → バッファ管理（既存なら切替・無ければ新規）
   if (/^e(dit)?\s+.+/i.test(s)) {
     try {
@@ -1760,7 +1727,6 @@ function runCommand(cmd){
       return;
     }
   }
-
   // quit
   // 強制終了
   if (/^q!$/i.test(s)) {
@@ -1780,11 +1746,9 @@ function runCommand(cmd){
     window.close();
     return;
   }
-
   showMsg('未実装: ' + s, 1200);
   closeCmdBar();
 }
-
 // === 追加: 保存ヘルパ (runCommand より前のグローバル領域に) ===
 function writeFileUTF8(path, content){
   // LF 正規化（v1 では LF 固定）
@@ -1798,10 +1762,8 @@ function writeFileUTF8(path, content){
   st.SaveToFile(path, 2 /*adSaveCreateOverWrite*/);
   st.Close();
 }
-
 // ====== 入力処理 ======
 var _skipComplRecalc = false; // ←追加: Esc 後の補完再計算を1回だけ抑止するフラグ
-
 function composing(e){ return e && (e.isComposing || e.keyCode===229); }
 function handleMove(editor, target, selecting){
   var text = editor.value;
@@ -1836,8 +1798,6 @@ function tryEmacsCtrl(editor,e){
   }
   return false;
 }
-
-
 // --- IE9 互換: 右下ハンドルでウィンドウサイズ変更（枠ドラッグ不可の代替） ---
 function ensureWindowResizer(){
   try{
@@ -1853,7 +1813,6 @@ function ensureWindowResizer(){
     h.ondblclick=function(){ try{ if(window.app){ var st=String(app.windowState||'').toLowerCase(); app.windowState=(st==='maximize'?'normal':'maximize'); } }catch(_){ } };
   }catch(_){ }
 }
-
 // ====== INIT ======
 (function init(){
   var editor=document.getElementById('editor');
@@ -1869,7 +1828,6 @@ function ensureWindowResizer(){
     'モード: i → INSERT, v → VISUAL, Esc → NORMAL\n' +
     'ペースト: INSERTでCtrl+V/Shift+Ins/右クリック可（改行はLFに正規化）。NORMALでは不可。\n' +
     'ヘルプ: F1 または :help\n';
-
   editor.focus();
   setMode(MODE_NORMAL,editor);
   setCaret(editor, 0);
@@ -1882,7 +1840,6 @@ function ensureWindowResizer(){
   document.getElementById('cmdline').style.display = 'none';
   document.getElementById('cmdprefix').style.display = 'none';
   try{ bufEnsureInitial(); }catch(_){ }
-
   // 追加: 起動引数（app.CommandLine）でファイルを開く（存在→読込／非存在→新規）
   (function(){
     var a = _getStartupArgFromApp();
@@ -1890,16 +1847,13 @@ function ensureWindowResizer(){
     var full = _resolveAgainstHtaDir(a);
     _openFileOrNewOnStartup(full);
   })();
-
   // --- キー処理（エディタ） ---
   editor.addEventListener('keydown', function(e){
     var __cmd=document.getElementById('cmdline'); if(__cmd && (__cmd.style.display==='inline-block'||__cmd.style.display==='block')) return;
     if(tryEmacsCtrl(editor,e)) return;
-
     var key = (typeof e.key==='string')?e.key:String.fromCharCode(e.keyCode);
     var lower = key.toLowerCase();
     var text=editor.value, pos=getCaret(editor);
-
     // 追加: F1 は editor 側で早期処理（NORMAL/VISUAL でも stopPropagation 前に処理）
     if ((key === 'F1') || e.keyCode === 112){
       e.preventDefault(); e.stopPropagation();
@@ -1907,7 +1861,6 @@ function ensureWindowResizer(){
       var sc = document.getElementById('helpScroll'); if (sc) sc.focus();
       return;
     }
-
     // 追加: 矢印キーを hjkl と同等に正規化（IE9 keyCode も対応）
     if (lower === 'arrowleft')  lower = 'h';
     else if (lower === 'arrowdown') lower = 'j';
@@ -1919,7 +1872,6 @@ function ensureWindowResizer(){
       else if (e.keyCode===38) lower='k';
       else if (e.keyCode===39) lower='l';
     }
-
     // --- 修飾キー単独押下は状態を壊さず無視 ---
     if (
       key === 'Shift' || key === 'Control' || key === 'Alt' || key === 'Meta' ||
@@ -1927,7 +1879,6 @@ function ensureWindowResizer(){
     ) {
       return;
     }
-
     if(mode===MODE_INSERT){
       if(composing(e)) return;
       if(key==='Escape'||e.keyCode===27){
@@ -1938,11 +1889,9 @@ function ensureWindowResizer(){
       }
       return; // 通常入力は素通し
     }
-
     // NORMAL / VISUAL
     if(composing(e)){ e.preventDefault(); }
     e.preventDefault(); e.stopPropagation();
-
     // モード切替・ヘルプ・Ex
     if (lower==='i'){
       if (e.shiftKey || key==='I'){
@@ -1958,11 +1907,9 @@ function ensureWindowResizer(){
     if(lower==='v'){ setMode(mode===MODE_VISUAL?MODE_NORMAL:MODE_VISUAL,editor); return; }
     if(key==='Escape'||e.keyCode===27){ setMode(MODE_NORMAL,editor); return; }
     if(key===':'){ openCmdBar(); return; }
-
     // 追加: 検索起動（/ 前方, ? 後方）とリピート
     if (lower === '/') { openSearchBar(1); return; }
     if (lower === '?') { openSearchBar(-1); return; }
-
     // n: 直前方向（Shiftなし）
     if (lower === 'n' && !e.shiftKey) {
       if (searchState && searchState.pat) {
@@ -1992,14 +1939,12 @@ function ensureWindowResizer(){
         return;
       }
     }
-
     function takeCount(def){
       var n = parseInt(countBuffer||'',10);
       countBuffer='';
       if(!isFinite(n) || n<=0) return (def==null?1:def);
       return n;
     }
-
     // --- G / NG 早期処理（大文字 G 判定を強化）---
     var isUpperG = (key === 'G') || (e.shiftKey && (key === 'g' || key === 'G')) || (e.shiftKey && e.keyCode === 71);
     if (isUpperG){
@@ -2008,13 +1953,11 @@ function ensureWindowResizer(){
       var raw = countBuffer; countBuffer='';
       var n = parseInt(raw||'',10);
       var line = (isFinite(n)&&n>0) ? Math.min(tl,n) : tl;
-
       if (opPending === 'd'){
         deleteLineRange(editor, text, curLine, line);
                opPending=null; opRepeat=1; gPending=false;
         return;
       }
-
       // 要望: 最終行で末尾改行なし→行末(=EOF)、末尾改行あり→改行文字位置
       var startIdx = lineStartByNumber(text, line);
       var targetPos;
@@ -2027,7 +1970,6 @@ function ensureWindowResizer(){
         // 中間行は行頭（好みにより firstNonBlank へ変更可）
         targetPos = startIdx;
       }
-
       lastMotionDir = (line >= curLine) ? 'down' : 'up';
       handleMove(editor, targetPos, mode===MODE_VISUAL);
       // 明示再調整
@@ -2035,10 +1977,8 @@ function ensureWindowResizer(){
       gPending = false;
       return;
     }
-
     // 'g' 以外入力で gPending 解除（上の G 早期処理後に判定）
     if (lower !== 'g') gPending = false;
-
     // 移動（NORMAL/ VISUAL）
     var target=pos, selecting=(mode===MODE_VISUAL);
     switch(lower){
@@ -2067,7 +2007,6 @@ function ensureWindowResizer(){
            return;
          }
       }
-
       case 'u': { // undo
         if (mode===MODE_NORMAL){
           doUndo();
@@ -2076,7 +2015,6 @@ function ensureWindowResizer(){
         }
         break;
       }
-
       // --- 削除（単体） ---
       case 'x': {
         if (mode!==MODE_INSERT){
@@ -2087,7 +2025,6 @@ function ensureWindowResizer(){
         }
         break;
       }
-
       // --- 貼り付け ---
       case 'p':
         if (mode!==MODE_INSERT){ pasteAfter(editor); countBuffer=''; opRepeat=1; return; }
@@ -2095,9 +2032,7 @@ function ensureWindowResizer(){
       case 'P':
         if (mode!==MODE_INSERT){ pasteBefore(editor); countBuffer=''; opRepeat=1; return; }
         break;
-
      
-
       // --- 演算子 d （次のモーションで削除）---
       // --- 追加: o/O （行を開いて INSERT） ---
       // 追加: o/O （行を開いて INSERT）
@@ -2108,7 +2043,6 @@ function ensureWindowResizer(){
         }
         break;
       }
-
       // --- 追加: a/A （右/行末で INSERT） ---
       // 追加: a/A （右/行末で INSERT）
       case 'a': {
@@ -2135,7 +2069,6 @@ function ensureWindowResizer(){
             var ls = lineStartIndex(text, pos);
             var tpos = pos, lastEnd = lineEndIndex(text, tpos);
             for (var i=1;i<lines;i++){
-
               if (lastEnd >= text.length) break;
               var nextStart = lastEnd + 1;
               lastEnd = lineEndIndex(text, nextStart);
@@ -2152,7 +2085,6 @@ function ensureWindowResizer(){
         }
         break;
       }
-
       case 'h': {
         var p = getActivePosForDir(editor,'left');
         var n = takeCount(1);
@@ -2164,7 +2096,6 @@ function ensureWindowResizer(){
         }
         target=Math.max(0,p-n); lastMotionDir='left'; break;
       }
-
       case 'l': {
         var p = getActivePosForDir(editor,'right');
         var n = takeCount(1);
@@ -2176,22 +2107,18 @@ function ensureWindowResizer(){
         }
         target=Math.min(text.length,p+n); lastMotionDir='right'; break;
       }
-
       case 'j': {
         var n = takeCount(1);
-
         // j の基準位置（VISUAL 対応）
         var p = getActivePosForDir(editor,'down');
         var tl = totalLines(text);
         var curLine = getLineCol(text, p).line;
-
         // 既に最終行なら何もしない（末尾改行有無どちらでも不動）
         if (curLine === tl) {
           // 演算子待機中 (d など) の場合は取り消し
           if (opPending) { opPending = null; opRepeat = 1; }
           break;
         }
-
         // 下へ n 行（1 行ずつ進めて途中で最終行に到達したら停止）
         var newPos = p;
         for (var i = 0; i < n; i++) {
@@ -2200,13 +2127,11 @@ function ensureWindowResizer(){
           newPos = step;
           if (getLineCol(text, newPos).line >= tl) break;
         }
-
         // 実質移動できなければ終了
         if (newPos === p) {
           if (opPending) { opPending = null; opRepeat = 1; }
           break;
         }
-
         // d{count}j のような演算子付き（未実装なら無視）
         if (opPending === 'd') {
           // 現在行頭～移動先行頭直前までを削除（簡易。必要なら行単位処理に拡張）
@@ -2216,69 +2141,49 @@ function ensureWindowResizer(){
           opPending = null; opRepeat = 1;
           break;
         }
-
         target = newPos;
         lastMotionDir = 'down';
         break;
       }
-
       case 'k': {
         var p = getActivePosForDir(editor,'up');
         var n = takeCount(1);
         target=posUp(text,p,n); lastMotionDir='up'; break;
       }
-
       case 'w': {
         var nMotion = takeCount(1);
         var tl = totalLines(text);
         var curLine = getLineCol(text, pos).line;
-
-        // 既に最終行 → w は不動（末尾から下方向に抜けないため）
-        if (curLine === tl){
-          if (opPending) { opPending=null; opRepeat=1; }
-          break;
-        }
-
-        var nTotal = (opPending==='d' ? opRepeat*nMotion : nMotion);
-        var p0 = (opPending==='d' ? pos : getActivePosForDir(editor,'right'));
+        if (curLine === tl){ if (opPending) { opPending=null; opRepeat=1; } break; }
+        var nTotal = (opPending===d ? opRepeat*nMotion : nMotion);
+        var p0 = (opPending===d ? pos : getActivePosForDir(editor,'right'));
         var t = p0;
-
-       
-        for (var i=0;i<nTotal;i++){
-          var next = wordRightPos(text, t);
-          if (next === t) break;  // 進めない
-          t = next;
-          // （前回: 最終行へ入ったら戻す処理があった → 削除）
-        }
-
-        if (opPending === 'd'){
-          if (t > pos) deleteRange(editor, pos, t);
-          opPending=null; opRepeat=1;
-          return;
-        }
-
-        if (t === pos || t === p0){
-          break;
-        }
-
+        for (var i=0;i<nTotal;i++){ var next = wordRightPos(text, t); if (next === t) break; t = next; }
+        if (opPending===d){ if (t > pos) deleteRange(editor, pos, t); opPending=null; opRepeat=1; return; }
+        if (t === pos || t === p0){ break; }
+        var oldLineW = getLineCol(text, p0).line;
+        var newLineW = getLineCol(text, t).line;
+        if (newLineW > oldLineW) lastMotionDir=down;
+        else if (newLineW < oldLineW) lastMotionDir=up;
+        else lastMotionDir=right;
         target = t;
-        lastMotionDir='right';
         break;
       }
-
       case 'b': {
         var nMotion = takeCount(1);
-        var nTotal = (opPending==='d'? opRepeat*nMotion : nMotion);
-        var p0 = (opPending==='d'? pos : getActivePosForDir(editor,'left'));
+        var nTotal = (opPending===d? opRepeat*nMotion : nMotion);
+        var p0 = (opPending===d? pos : getActivePosForDir(editor,'left'));
         var t = p0;
-        for (var i=0;i<nTotal;i++){ t = wordLeftPos(text, t); }
-        if (opPending === 'd'){
-          if (t < pos) deleteRange(editor, t, pos);
-          opPending=null; opRepeat=1; return;
-        }
-        target=t; lastMotionDir='left'; break;
+        for (var i=0;i<nTotal;i++){ var next = wordLeftPos(text, t); if (next === t) break; t = next; }
+        if (opPending===d){ if (t < pos) deleteRange(editor, t, pos); opPending=null; opRepeat=1; return; }
+        var oldLineB = getLineCol(text, p0).line;
+        var newLineB = getLineCol(text, t).line;
+        if (newLineB > oldLineB) lastMotionDir=down;
+        else if (newLineB < oldLineB) lastMotionDir=up;
+        else lastMotionDir=left;
+        target = t;
+        break;
       }
-
       case '$': {
         // カウントありの $ は n 行下の行末へ（Vim互換: 2$ で次行の行末）
         var dirVis = (mode===MODE_VISUAL && editor.selectionStart!==editor.selectionEnd && (lastMotionDir==='left'||lastMotionDir==='up')) ? 'left' : 'right';
@@ -2303,9 +2208,7 @@ function ensureWindowResizer(){
         }
         target = tend; lastMotionDir = dirVis; break;
       }
-
       case '0': {
-
         // VISUAL時は直前の移動方向に応じて“動いている端”の行頭へ
         (function(){
           var isVisual = (mode===MODE_VISUAL && editor.selectionStart!==editor.selectionEnd);
@@ -2330,14 +2233,12 @@ function ensureWindowResizer(){
         })();
         break;
       }
-
       case '{': {
         var p = getActivePosForDir(editor,'up');
         var n = takeCount(1);
         var t = p; for (var i=0;i<n;i++){ t = paragraphPrev(text, t); }
         target=t; lastMotionDir='up'; break;
       }
-
       case '}': {
         var p = getActivePosForDir(editor,'down');
         var n = takeCount(1);
@@ -2356,7 +2257,6 @@ function ensureWindowResizer(){
     }
     handleMove(editor,target,selecting);
   });
-
   // スクロール/入力/リサイズ
   editor.addEventListener('scroll', function(){ updateGutter(); });
   editor.addEventListener('input',  function(){
@@ -2379,7 +2279,6 @@ function ensureWindowResizer(){
       }
     }catch(_){ }
   });
-
   // ペースト：INSERT 以外は拒否。INSERT では LF 正規化。
   editor.addEventListener('paste', function(e){
     // NORMAL/VISUAL では完全拒否
@@ -2403,7 +2302,6 @@ function ensureWindowResizer(){
     }
     // それ以外（安全のため既定も許可しない）
   });
-
   // F1 でヘルプ
   window.addEventListener('keydown', function(e){
     // ← 置換済みのグローバルF1判定はこのままでOK（editorで捕捉できない場合の保険）
@@ -2453,7 +2351,6 @@ function ensureWindowResizer(){
       return;
     }
   });
-
   // cmdline 基本ハンドラ内 Esc 判定を拡張
   var cmd=document.getElementById('cmdline');
   cmd.addEventListener('keydown', function(e){
@@ -2494,7 +2391,6 @@ function ensureWindowResizer(){
       runCommand((pref||'') + (cmd.value||''));
       return;
     }
-
     // 補完中の特殊キー
     if (cmdCompl.active){
       if (k === 'Tab'){
@@ -2541,7 +2437,6 @@ function ensureWindowResizer(){
         return;
       }
     }
-
     // 文字入力など → keydown 時点では value まだ更新されていないので後で再計算
     setTimeout(function(){
       if(_skipComplRecalc){ _skipComplRecalc=false; return; } // ←追加
@@ -2549,7 +2444,6 @@ function ensureWindowResizer(){
       updateCmdCompletions();
     },0);
   });
-
   // cmdbar自体へのESC/コマンド切替
   document.getElementById('cmdbar').addEventListener('keydown', function(e){
     // 追加: コマンドライン表示中は最優先で ESC 取消
@@ -2584,7 +2478,6 @@ function ensureWindowResizer(){
       e.stopPropagation();
     }
   });
-
   // cmdmsgへのESC/コマンド切替
   document.getElementById('cmdmsg').addEventListener('keydown', function(e){
     if (showMsg._hold && (e.key === 'Escape' || e.key === ':')) {
@@ -2606,7 +2499,6 @@ function ensureWindowResizer(){
       e.stopPropagation();
     }
   });
-
   // どこでもESCで警告を消す（window, body, document）
   function globalEscHandler(e){
     var cmdmsgElem = document.getElementById('cmdmsg');
@@ -2637,7 +2529,6 @@ function ensureWindowResizer(){
   window.addEventListener('keydown', globalEscHandler, true);
   document.body.addEventListener('keydown', globalEscHandler, true);
   document.addEventListener('keydown', globalEscHandler, true);
-
   // filepath: c:\Users\ymaru\tedit\tedit\tedit.hta.txt
   // === Command-line completion (GLOBAL) for :e / :e! ===
   var cmdCompl = {
@@ -2649,7 +2540,6 @@ function ensureWindowResizer(){
     typed:'',
     filterPrefix:'' // 初回起動時の入力（以後フィルタを狭めないため保持）
   };
-
   function resetCmdCompl(){
     cmdCompl.active = false;
     cmdCompl.list = [];
@@ -2658,7 +2548,6 @@ function ensureWindowResizer(){
     cmdCompl.typed = '';
     hideCmdCompletions();
   }
-
   function buildFileCompletions(prefix){
     try{
       var fso=new ActiveXObject("Scripting.FileSystemObject");
@@ -2684,7 +2573,6 @@ function ensureWindowResizer(){
       return out;
     }catch(_){ return []; }
   }
-
   function ensureCmdComplBox(){
     var box=document.getElementById('cmdcomplist');
     if(!box){
@@ -2700,7 +2588,6 @@ function ensureWindowResizer(){
     }
     return box;
   }
-
   function showCmdCompletions(list){
     var box=ensureCmdComplBox();
     if(!list.length){ box.style.display='none'; return; }
@@ -2724,14 +2611,12 @@ function ensureWindowResizer(){
     var box=document.getElementById('cmdcomplist');
     if(box) box.style.display='none';
   }
-
   // （置換）updateCmdCompletions（グローバル定義側）: head をコロン無しで保持
   function updateCmdCompletions(){
     var cmdEl=document.getElementById('cmdline'); if(!cmdEl) return;
     var raw = cmdEl.value.replace(/^:/,'');
     // :ls / :buffers → :b に変換して UI を出す
     if (/^(ls|buffers)\s*$/i.test(raw)){ cmdEl.value='b '; raw='b '; }
-
     // :b / :buffer の補完（バッファ一覧）
     var mB = raw.match(/^(b(uffer)?)\s*(.*)$/i);
     if (mB){
@@ -2743,7 +2628,6 @@ function ensureWindowResizer(){
       showCmdCompletions(cmdCompl.list);
       return;
     }
-
     // 既存: :e / :e! のファイル補完
     var m = raw.match(/^(e!?)(\s+)(.*)$/i);
     if(!m){ resetCmdCompl(); return; }
@@ -2764,7 +2648,6 @@ function ensureWindowResizer(){
     cmdCompl.active=true; cmdCompl.list=list; cmdCompl.labels=[]; cmdCompl.index=idx; cmdCompl.head=head; cmdCompl.typed=typed;
     showCmdCompletions(list);
   }
-
   function cycleCmdCompl(dir){
     if(!cmdCompl.active || !cmdCompl.list.length) return;
     var n = cmdCompl.list.length;
@@ -2772,13 +2655,11 @@ function ensureWindowResizer(){
     applyCurrentCandidate();     // ← 移動するたびに入力欄へ反映
     showCmdCompletions(cmdCompl.list);
   }
-
   // （修正）commitCmdCompletion（グローバル定義側）内 colon 除去: value へ書く際に head から先頭コロンを除く
   function commitCmdCompletion(){
     if(!cmdCompl.active) return;
     applyCurrentCandidate(); // 既に入力欄へ反映されているので確定処理はこれだけ
   }
-
   // （追加）cmdCompl 関連関数群の中に挿入（resetCmdCompl() の直後など適所）
   function applyCurrentCandidate(){
     if(!cmdCompl.active) return;
@@ -2791,13 +2672,11 @@ function ensureWindowResizer(){
     // 反映後、カーソルを末尾へ
     cmdEl.selectionStart = cmdEl.selectionEnd = cmdEl.value.length;
   }
-
   function escapeHtml(s){
     return s.replace(/[&<>"']/g,function(c){
       return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]);
     });
   }
-
   // （追加）コマンドライン input / blur イベント（既存になければ追加）
   cmd.addEventListener('input', function(){
     updateCmdCompletions();
@@ -2806,7 +2685,6 @@ function ensureWindowResizer(){
     // フォーカス外れたら閉じる
     resetCmdCompl();
   });
-
   // === 起動引数（app.CommandLine）対応のヘルパーを追加 ===
 function _getStartupArgFromApp(){
   try{
@@ -2820,7 +2698,6 @@ function _getStartupArgFromApp(){
   // WMI フォールバック
   return _getStartupArgFromWMI();
 }
-
 function _parseCmdlineForArg(cl){
   try{
     if (!cl) return null;
@@ -2832,7 +2709,6 @@ function _parseCmdlineForArg(cl){
     return rest.split(/\s+/)[0];
   }catch(_){ return null; }
 }
-
 function _getStartupArgFromWMI(){
   try{
     var svc = GetObject("winmgmts:root\\cimv2");
@@ -2850,8 +2726,6 @@ function _getStartupArgFromWMI(){
   }catch(_){ }
   return null;
 }
-
-
   function _htaPathWin(){
     try{
       var href = String(window.location.href||'');
@@ -2863,7 +2737,6 @@ function _getStartupArgFromWMI(){
       return p;
     }catch(_){ return ''; }
   }
-
   function _resolveAgainstHtaDir(p){
     try{
       var fso = new ActiveXObject("Scripting.FileSystemObject");
@@ -2873,12 +2746,10 @@ function _getStartupArgFromWMI(){
       return fso.BuildPath(dir, p);
     }catch(_){ return p; }
   }
-
   function _openFileOrNewOnStartup(path){
     if(!path) return;
     try{ bufEnsureInitial(); bufOpenFile(path, false); } catch(e){ showMsg("Startup open failed", 1800); }
   }
-
   // 起動引数からのファイルオープン（app.CommandLine 対応）
   (function startupFileOpen(){
     try{
@@ -2889,7 +2760,6 @@ function _getStartupArgFromWMI(){
     }catch(e){}
   })();
 })();
-
   function buildBufferCompletions(prefix){
     var vals=[], labels=[];
     try{
@@ -2921,13 +2791,11 @@ function bindCmdlineIncSearch(){
       var pfx = pre ? ((pre.innerText || pre.textContent) || '') : '';
       if (pfx !== '/' && pfx !== '?') return;
       try{ window._incsearchActive = true; }catch(_){ }
-
       var pat = cmd.value || '';
       var ed  = document.getElementById('editor');
       var fromPos = (typeof window._searchFromPos === 'number')
         ? window._searchFromPos
         : (ed ? getCaret(ed) : undefined);
-
       if (!pat){
         try{ clearIncPreview(); }catch(_){ }
         // 空なら元位置へ（確定はまだしない）
@@ -2938,13 +2806,10 @@ function bindCmdlineIncSearch(){
         }
         return;
       }
-
       var dir = (pfx === '/') ? 1 : -1;
-
       // 直前の検索状態を退避（確定は Enter 時のみ）
       var prevPat = (window.searchState && searchState.pat) ? searchState.pat : '';
       var prevDir = (window.searchState && typeof searchState.dir==='number') ? searchState.dir : 1;
-
       // 一時ジャンプ（基準方向は更新しない・包含開始）
 // early-shrink (anchor): same anchor still matches -> shrink preview length only and return
 try{
@@ -3013,7 +2878,6 @@ try{
           if (cmd.setSelectionRange) cmd.setSelectionRange(v.length, v.length);
         }
       }catch(_){ }
-
       // 直前の状態へ戻す（n/N の基準を汚さない）
       try{ searchState.pat = prevPat; searchState.dir = prevDir; }catch(_){}
       if (window._incLastHit){
@@ -3151,14 +3015,11 @@ function _repositionIncPreviewRange(){
   if (!layer) return;
   var ed = document.getElementById('editor');
   if (!ed || typeof window._incPrevPos !== 'object') return;
-
   var lh = getLineHeightPx(ed);
   if (!lh || !isFinite(lh) || lh <= 0) { layer.style.display = 'none'; return; }
-
   var line = parseInt((window._incPrevPos.line||1),10) || 1;
   var col  = parseInt((window._incPrevPos.col ||1),10) || 1;
   var len  = parseInt((window._incPrevPos.len ||0),10); if (!isFinite(len) || len < 0) len = 0;
-
   // 可能なら IE の TextRange で実座標を取得（最も正確）
   try{
     if (ed.createTextRange){
@@ -3169,7 +3030,6 @@ function _repositionIncPreviewRange(){
       }catch(_){ absStart = 0; }
       if (absStart < 0) absStart = 0;
       if (absStart > text.length) absStart = text.length;
-
       var tr = ed.createTextRange();
       tr.collapse(true);
       tr.moveStart('character', absStart);
@@ -3188,7 +3048,6 @@ function _repositionIncPreviewRange(){
       }
     }
   }catch(_){}
-
   // フォールバック（文字幅×列 + パディング/ボーダ補正）
   var cw = getCharWidthPx(ed);
   var r  = ed.getBoundingClientRect();
@@ -3202,19 +3061,15 @@ function _repositionIncPreviewRange(){
     if (!isFinite(borL)) borL = ed.clientLeft || 0;
     if (!isFinite(borT)) borT = ed.clientTop  || 0;
   }catch(_){ borL = ed.clientLeft || 0; borT = ed.clientTop || 0; }
-
   var contentLeft = r.left + borL + padL;
   var contentTop  = r.top  + borT + padT;
-
   var startCol = (col - 1);
   var endCol   = (col - 1 + len);
   var startOff = Math.floor(startCol * cw + 0.01);
   var endOff   = Math.ceil(endCol   * cw - 0.01);
-
   var top  = contentTop  + (line - 1) * lh - ed.scrollTop;
   var left = contentLeft + startOff    - ed.scrollLeft;
   var wid  = Math.max(1, endOff - startOff);
-
   layer.style.left   = left + 'px';
   layer.style.top    = top  + 'px';
   layer.style.width  = wid  + 'px';
@@ -3240,7 +3095,6 @@ function clearIncPreview(){
 (function(){
   if (window._incsearchPatched) return;
   window._incsearchPatched = true;
-
   function ensureBindInc(){
     try{
       var cmd = document.getElementById('cmdline');
@@ -3252,7 +3106,6 @@ function clearIncPreview(){
           var pfx = pre ? ((pre.innerText || pre.textContent) || '') : '';
           if (pfx !== '/' && pfx !== '?') return;
           window._incsearchActive = true;
-
           var pat = cmd.value || '';
           var ed  = document.getElementById('editor');
           if (!pat){
@@ -3260,18 +3113,15 @@ function clearIncPreview(){
             return;
           }
           var dir = (pfx === '/') ? 1 : -1;
-
           // 検索基準は保存/復元して n/N の挙動を汚さない
           var prevPat = (window.searchState && searchState.pat) ? searchState.pat : '';
           var prevDir = (window.searchState && typeof searchState.dir==='number') ? searchState.dir : 1;
           var fromPos = (typeof window._searchFromPos === 'number')
             ? window._searchFromPos
             : (ed && typeof getCaret==='function' ? getCaret(ed) : 0);
-
           if (typeof doSearch === 'function'){
             doSearch(pat, dir, fromPos, { updateBase:false, inclusive:true, incPreview:true });
           }
-
           // フォーカス維持
           if (document.activeElement !== cmd){
             cmd.focus();
@@ -3281,7 +3131,6 @@ function clearIncPreview(){
           try{ searchState.pat = prevPat; searchState.dir = prevDir; }catch(e){}
         }catch(e){}
       });
-
       // Esc で解除（プレビュー消去）
       cmd.addEventListener('keydown', function(ev){
         var k = ev.keyCode || ev.which;
@@ -3290,11 +3139,9 @@ function clearIncPreview(){
           try{ if (typeof clearIncPreview==='function') clearIncPreview(); }catch(e){}
         }
       });
-
       cmd._incBound = true;
     }catch(e){}
   }
-
   // openSearchBar 後にバインド
   (function(){
     var _open = window.openSearchBar;
@@ -3308,7 +3155,6 @@ function clearIncPreview(){
       setTimeout(ensureBindInc, 500);
     }
   })();
-
   // runCommand 確定時は incsearch フラグを下ろす（未ヒットならここでメッセージ許可）
   (function(){
     var _run = window.runCommand;
@@ -3319,7 +3165,6 @@ function clearIncPreview(){
       };
     }
   })();
-
   // showMsg をラップして、incsearch 中の "Pattern not found" を抑止
   (function(){
     if (!window._showMsgOrig && typeof window.showMsg === 'function'){
@@ -3355,7 +3200,6 @@ function clearIncPreview(){
   // 診断フラグ（必要時 true に）
   window._DND_DEBUG = false;
   function dbg(s){ try{ if (window._DND_DEBUG) showMsg(String(s), 1600); }catch(_){ } }
-
   function normalizeDropPath(p){
     if(!p) return "";
     p = String(p).replace(/^\s+|\s+$/g, "");
@@ -3368,7 +3212,6 @@ function clearIncPreview(){
     if (m2){ var host=m2[1]; var rest=decodeURIComponent(m2[2]).replace(/\//g, "\\"); return "\\\\"+host+"\\"+rest.replace(/^\\+/, ""); }
     return p;
   }
-
   function getDropPaths(ev){
     var we = window.event;
     var dt = (ev && ev.dataTransfer) || (we && we.dataTransfer) || null;
@@ -3405,7 +3248,6 @@ function clearIncPreview(){
     }
     return outP;
   }
-
   // パスが取れない時のフォールバック: FileReader で中身を開く（無名バッファ）
   function openDroppedFilesByReader(fileList){
     if (!fileList || !fileList.length){ try{ showMsg("ドロップからパスを取得できません", 1400); }catch(_){ } return; }
@@ -3442,7 +3284,6 @@ function clearIncPreview(){
       }catch(_){ }
     }, 30);
   }
-
   function preventAll(e){
     try{ e.preventDefault(); }catch(_){ }
     try{ e.stopPropagation(); }catch(_){ }
