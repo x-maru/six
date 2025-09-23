@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=11">
+<title>Vi-like Text Editor "six" v0.3.3</title>
+<hta:application
+  id="app"
+  applicationname="six"
+  border="thin"
+  caption="yes"
+  sysmenu="yes"
+  singleinstance="yes"
+  scroll="no"
+/>
+<link rel="stylesheet" href="_six.css">
+</head>
+<body>
+  <!-- 画面下部コマンド/ステータス/メッセージバー（統合） -->
+  <div id="cmdbar" tabindex="0">
+    <div id="statusline1">
+      <span id="filename"></span>
+      <span id="modmark"></span>
+      <span id="mode"></span>
+      <span id="pos"></span>
+      <span id="hint"></span>
+    </div>
+    <div id="statusline2">
+      <div id="cmdmsg" style="display:none;"></div>
+      <span id="cmdprefix" style="display:none">:</span>
+      <input id="cmdline" type="text" style="display:none" />
+    </div>
+  </div>
+  <div id="pane">
+    <div id="edstripe"></div>
+    <div id="gutter"></div>
+    <textarea id="editor" spellcheck="false" wrap="off"
+      placeholder="ここにテキストを入力…&#10;NORMALでは h j k l / ←↓↑→ / w b / ^ 0 $ / gg G、行挿入 o/O、挿入 a/A、行頭 I。&#10;/ と ? で検索、n/N で次/前。&#10;i で INSERT、Esc で NORMAL。:w で保存、:help でヘルプ。"></textarea>
+  </div>
+  <!-- ヘルプ（最小の“使えるコマンド一覧”） -->
+  <div id="help">
+    <div id="helpScroll" tabindex="0">
+      <h2>ヘルプ</h2>
+      <h2>起動時オプション（ファイルを渡して開く）</h2>
+      <ul>
+        <li>同フォルダ: <code>six.hta README.txt</code></li>
+        <li>フルパス: <code>mshta.exe "C:\path\to\six.hta" "C:\path\to\memo.txt"</code></li>
+        <li>空白を含むパスは引用符で囲む</li>
+        <li>相対パスは「six.hta のあるフォルダ」を基準に解決</li>
+        <li>存在すれば <strong>Loaded:</strong>、無ければ <strong>New file:</strong>（編集フラグ=0で開始）</li>
+      </ul>
+      <h2>NORMAL モード</h2>
+      <ul>
+        <li>移動: <kbd>h</kbd>/<kbd>j</kbd>/<kbd>k</kbd>/<kbd>l</kbd>（<kbd>←</kbd>/<kbd>↓</kbd>/<kbd>↑</kbd>/<kbd>→</kbd> でも可）</li>
+        <li>語単位: <kbd>w</kbd>（次の語先頭） / <kbd>b</kbd>（前の語先頭）</li>
+        <li>行内: <kbd>^</kbd>（先頭非空白） / <kbd>0</kbd>（行頭） / <kbd>$</kbd>（行末）</li>
+        <li>段落: <kbd>{</kbd> / <kbd>}</kbd></li>
+        <li>先頭/末尾行: <kbd>gg</kbd> / <kbd>G</kbd></li>
+        <li>カウント: 数字前置（例: 5<kbd>j</kbd>, 3<kbd>w</kbd>, 2<kbd>dd</kbd>, 10<kbd>G</kbd>）</li>
+        <li>削除:
+          <ul>
+            <li><kbd>x</kbd>（カーソル文字）</li>
+            <li><kbd>d</kbd>＋モーション（<kbd>d</kbd><kbd>h</kbd>/<kbd>d</kbd><kbd>l</kbd>/<kbd>d</kbd><kbd>w</kbd>/<kbd>d</kbd><kbd>$</kbd> など）</li>
+            <li><kbd>dd</kbd> / <code>N</code><kbd>dd</kbd>（行単位）</li>
+            <li><kbd>d</kbd><kbd>gg</kbd> / <kbd>d</kbd><kbd>G</kbd>（現在行から先頭/末尾まで行単位）</li>
+        <li>行挿入: <kbd>o</kbd>（下に新規行＋INSERT） / <kbd>O</kbd>（上に新規行＋INSERT）</li>
+        <li>挿入: <kbd>a</kbd>（右へ1文字進んでINSERT） / <kbd>A</kbd>（行末でINSERT） / <kbd>I</kbd>（先頭非空白でINSERT）</li>
+        <li>検索: <kbd>/</kbd>（前方） / <kbd>?</kbd>（後方）、<kbd>n</kbd>/<kbd>N</kbd> で次/前（入力中にプレビュー）</li>
+          </ul>
+        </li>
+        <li>貼り付け: <kbd>p</kbd>（後） / <kbd>P</kbd>（前）
+          <ul>
+            <li>行単位レジスタは行として貼り付け、文字単位は位置に挿入</li>
+            <li>VISUAL 選択中は置換貼り付け</li>
+          </ul>
+        </li>
+        <li>モード切替: <kbd>i</kbd>（INSERT） / <kbd>v</kbd>（VISUAL） / <kbd>Esc</kbd>（NORMALへ）</li>
+        <li>ステータス: 画面下に <code>Ln, Col, Sel, [+]</code> を表示。行番号は <kbd>:set number</kbd> で切替</li>
+      </ul>
+      <h2>VISUAL モード</h2>
+      <ul>
+        <li>開始/終了: <kbd>v</kbd> で開始 / <kbd>Esc</kbd> で終了</li>
+        <li>選択: exclusive（右端は含めない）</li>
+        <li>移動: <kbd>h</kbd>/<kbd>j</kbd>/<kbd>k</kbd>/<kbd>l</kbd>、<kbd>←</kbd>/<kbd>↓</kbd>/<kbd>↑</kbd>/<kbd>→</kbd>、<kbd>w</kbd>/<kbd>b</kbd>、<kbd>0</kbd>/<kbd>^</kbd>/<kbd>$</kbd>、<kbd>{</kbd>/<kbd>}</kbd>、<kbd>gg</kbd>/<kbd>G</kbd></li>
+        <li>削除: <kbd>d</kbd> で選択削除（<kbd>d</kbd>＋モーションも可）</li>
+        <li>貼り付け: <kbd>p</kbd>/<kbd>P</kbd> は選択範囲を置換</li>
+        <li>カウント: 数字前置でモーションに適用（例: 5<kbd>j</kbd>）</li>
+      </ul>
+      <h2>:コマンド</h2>
+      <ul>
+        <li><kbd>:e</kbd> file … ファイルを開く（無ければ新規空で開始）
+          <ul>
+            <li>補完: <kbd>Tab</kbd>/<kbd>Shift+Tab</kbd> または <kbd>↑</kbd>/<kbd>↓</kbd> で候補巡回（自動挿入なし、選択時のみ反映）</li>
+          </ul>
+        </li>
+        <li><kbd>:e!</kbd> / <kbd>:e!</kbd> file … 強制再読込（未保存変更を破棄）</li>
+                <li><kbd>:ls</kbd> / <kbd>:buffers</kbd> … バッファ一覧を表示（コマンドバーに <code>:b </code> をセットし候補から選択可）</li>
+                <li><kbd>:b</kbd> {id} / <kbd>:b</kbd> {名前} … バッファ切替（名前/パスは前方一致）。<code>%</code> は現在、<code>[+]</code> は未保存</li>
+        <li><kbd>:w</kbd> / <kbd>:w</kbd> path … UTF-8（LF）で保存。保存後は編集フラグクリア＆Undo基点再構築</li>
+        <li><kbd>:set number</kbd> / <kbd>:set nonumber</kbd> … 行番号表示の切替</li>
+        <li><kbd>:set clipboard=os</kbd> / <kbd>:set clipboard=internal</kbd> … クリップボード同期先</li>
+        <li><kbd>:set scrolloff=数字</kbd> … 画面端からの余白行数（既定=99999）</li>
+        <li><kbd>:123</kbd> … 指定行へジャンプ（先頭非空白）</li>
+        <li><kbd>:u</kbd> / <kbd>:redo</kbd> … Undo / Redo</li>
+        <li><kbd>:s</kbd> / <kbd>:%s</kbd> / <kbd>'&lt;,'&gt;s</kbd> … 置換
+          <ul>
+            <li>書式: <code>:s/パターン/置換/[フラグ]</code>、<code>:%s/…</code>（全体）、<code>'&lt;,'&gt;s/…</code>（VISUAL 選択）</li>
+            <li>範囲: 省略=現在行、<code>%</code>=全体、<code>'&lt;,'&gt;</code>=直前の VISUAL 範囲（<kbd>v</kbd> から <kbd>:</kbd> で自動入力）</li>
+            <li>フラグ: <code>g</code>=行内すべて、<code>c</code>=確認、<code>i</code>=大小無視、<code>I</code>=大小区別（現状は明示しても既定と同等）、<code>n</code>=件数のみ（テキストは変更しない）</li>
+            <li>確認中のキー: <kbd>y</kbd>=この箇所、<kbd>n</kbd>=スキップ、<kbd>a</kbd>=残りすべて、<kbd>q</kbd>=終了、<kbd>l</kbd>=最後の1件のみ、<kbd>u</kbd>=直前判断の取り消し（1回）</li>
+            <li>置換式トークン: <code>\n</code>=改行、<code>\t</code>=タブ、<code>&amp;</code>/<code>\0</code>=一致全体、<code>\1..\9</code>=キャプチャ群</li>
+            <li>入力中プレビュー: <code>:s</code> 入力時に最初の一致をハイライト（<code>c</code> 指定時は確定後に対話で進行）</li>
+            <li>制限・未対応: <code>:s//</code>（直前パターンの再利用）、一般アドレス/範囲指定（例: <code>2,10</code> や <code>.,$</code>）、追加フラグ <code>p</code>/<code>e</code>、Vim 拡張正規表現（<code>\v</code> や <code>\zs</code>/<code>\ze</code> 等）、大文字小文字変換 <code>\u/\l/\U/\L/\E</code>、直前の置換再実行 <code>:&amp;</code> は未対応。アンカー <code>^</code>/<code>$</code> の解釈は JS RegExp に依存し、<code>g</code> 指定時は範囲全体基準になります。</li>
+          </ul>
+        </li>
+        <li><kbd>:help</kbd> … このヘルプを表示</li>
+        <li><kbd>:q</kbd> / <kbd>:q!</kbd> … 終了（未保存変更を破棄して強制終了するには <kbd>:q!</kbd>）</li>
+        <li><kbd>:debugscroll</kbd> … スクロール境界のデバッグ情報を表示</li>
+      </ul>
+      <p>注: ActiveX（FileSystemObject / ADODB.Stream）が無効な環境では、ファイル操作と補完は動作しません。</p>
+    </div>
+    <div id="helpFooter">
+      <span id="helpKeys">
+        ヘルプ中の操作:
+        <kbd>j</kbd> /
+        <kbd>k</kbd> /
+        <kbd>↓</kbd> /
+        <kbd>↑</kbd> /
+        <kbd>Space</kbd> /
+        <kbd>Shift</kbd>+<kbd>Space</kbd> /
+        <kbd>gg</kbd> /
+        <kbd>G</kbd>
+      </span>
+      <button onclick="hideHelp()">閉じる (Esc)</button>
+    </div>
+  </div>
+  <!-- IME debug overlay -->
+  <div id="imeLogOverlay">
+    <div id="imeLogOverlayHeader">
+      <span>six: IME Logs</span>
+      <button id="imeLogClose" onclick="(function(){ try{ document.getElementById('imeLogOverlay').style.display='none'; document.getElementById('editor').focus(); }catch(_){ } })()">Close</button>
+    </div>
+    <textarea id="imeLogText" readonly></textarea>
+  </div>
+  <div id="msg"></div>
+
+  <script type="text/javascript">
+// ====== オプション（:set 相当） ======
+var OPT = {
+  number: true,          // 行番号
+  fileformat: 'unix',    // v1は LF 固定 ('unix')。将来 'dos' なら CRLF 正規化へ
+  clipboard: 'internal', // 'internal' or 'os'（y/d 実装時に反映）
+  scrolloff: 99999  // 既定の scrolloff
+};
+  </script>
+
+  <script type="text/javascript" src="_six.initial.js"></script>
+  <script type="text/javascript" src="_six.overlay.js"></script>
+  <script type="text/javascript" src="_six.run-command.js"></script>
+  <script type="text/javascript" src="_six.search.js"></script>
+  <script type="text/javascript" src="_six.other.js"></script>
+  <script type="text/javascript" src="_six.initial-terminate.js"></script>
+</body>
+</html>
