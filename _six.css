@@ -21,7 +21,7 @@
   #gutter {
     position: static;
     width: 4.0rem; background: #1b1c1f; border-right: 1px solid #3b3d42;
-    color: #c0c0c0; text-align: right; padding-right: 0.45rem; box-sizing: border-box;
+    color: #c0c0c0; text-align: right; /* padding-right を各行要素に移動 */ box-sizing: border-box;
     font-size: 1.0rem; line-height: 1.6; pointer-events: none; overflow: hidden;
     z-index: 2;
     height: 100%;

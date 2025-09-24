@@ -1200,6 +1200,8 @@ function updateGutter() {
   var gutter = document.getElementById('gutter');
   var editor = document.getElementById('editor');
   var stripe = document.getElementById('edstripe');
+  // THEME は _six.html で定義済み（存在しない場合はフォールバック値）
+  if (typeof window.THEME !== 'object') window.THEME = { stripeEvenColor: 'darkSlateGray', eofFillColor: 'gray' };
   if (!OPT.number) {
     gutter.style.display='none';
   editor.style.paddingLeft='0.5rem';
@@ -1215,7 +1217,7 @@ function updateGutter() {
   var lhExact = (lh && isFinite(lh) && lh > 0) ? lh : 16;
   // エディタの上パディングをガターにも適用（基準位置を揃える）
   var padTop = 0; try{ var cs = window.getComputedStyle?getComputedStyle(editor):editor.currentStyle; padTop = parseFloat(cs.paddingTop)||0; }catch(_){ }
-  gutter.style.paddingTop = (padTop|0) + 'px';
+  gutter.style.paddingTop = padTop + 'px';
   // 本文/ガター両方の行高を明示指定（px, 小数可）
   try{ editor.style.lineHeight = lhExact + 'px'; }catch(_){ }
   gutter.style.lineHeight = lhExact + 'px';
@@ -1228,31 +1230,65 @@ function updateGutter() {
   var endLine = Math.min(total, startLine + visible);
   var html = [];
   for (var ln = startLine + 1; ln <= endLine; ln++) {
+    // EOF 以降には生成しない（endLine は total で打ち止め）
     var isEven = (ln % 2 === 0);
-    var bg = isEven ? 'background:darkSlateGray;' : '';
-    html.push('<div class="ln" style="height:'+lhExact+'px;line-height:'+lhExact+'px;'+bg+'">' + ln + '</div>');
+  var bg = isEven ? ('background:'+window.THEME.stripeEvenColor+';') : '';
+  html.push('<div class="ln" style="height:'+lhExact+'px;line-height:'+lhExact+'px;'+bg+'padding-right:0.45rem;">' + ln + '</div>');
   }
   gutter.innerHTML = html.join('');
-  // スクロール端数のみ逆方向に移動（基準は padding-top 同期済み）
+  // スクロール端数のみ逆方向に移動（padding の端数も含め同期させる）
   var offset = -(editor.scrollTop % lhExact);
-  gutter.style.transform = 'translateY(' + (offset) + 'px)';
-  // 本文側の偶数行ストライプをオーバーレイで可視化
+  var padFrac = padTop - (padTop|0);
+  var transOffset = offset + padFrac;
+  gutter.style.transform = 'translateY(' + (transOffset) + 'px)';
+  // ガター EOF 塗り潰し: 最終行下端からシームレスに開始（ギャップ/被り調整）
+  try {
+    if (endLine === total) {
+      var lastLineIdxG = total - 1; if (lastLineIdxG < 0) lastLineIdxG = 0;
+      var fillTop = padTop + (lastLineIdxG + 1 - startLine) * lhExact; // 最終行下端
+      if (fillTop < 0) fillTop = 0;
+      if (gutter.style.position==='static' || !gutter.style.position) gutter.style.position='relative';
+      gutter.innerHTML += '<div style="position:absolute;left:0;right:0;top:'+fillTop+'px;bottom:0;background:'+window.THEME.eofFillColor+';pointer-events:none;"></div>';
+    }
+  }catch(_){ }
+  // 本文側ストライプ（偶数行背景）: グラデーションから可視行単位生成へ変更（部分表示/EOF越え防止）
   if (stripe){
     stripe.style.display='block';
-    var padLeft = 82; // number=on 左パディング
-    try{ var cs2 = window.getComputedStyle?getComputedStyle(editor):editor.currentStyle; padLeft = parseFloat(cs2.paddingLeft)||82; }catch(_){ }
-    stripe.style.left = '0px';
-    stripe.style.right = '0px';
-    stripe.style.top = '0px';
-    stripe.style.bottom = '0px';
-    // ガターを除いた本文領域だけにストライプを出したいが、簡便に全体でOK
-    var color = 'darkSlateGray';
-    var size = lhExact*2; // 2行で1周期
-  var bg = 'repeating-linear-gradient( to bottom, transparent 0px, transparent '+lhExact+'px, '+color+' '+lhExact+'px, '+color+' '+(lhExact*2)+'px )';
-  try{ stripe.style.backgroundImage = bg; }catch(_){ /* gradient unsupported */ }
-  try{ stripe.style.backgroundSize = 'auto '+(size)+'px'; }catch(_){ try{ stripe.style.backgroundSize = size+'px auto'; }catch(__){} }
-  var posY = ((padTop - (editor.scrollTop % (lhExact*2)))) + 'px';
-  try{ stripe.style.backgroundPositionY = posY; }catch(_){ try{ stripe.style.backgroundPosition = '0px '+posY; }catch(__){} }
+    stripe.style.background='none';
+    stripe.style.backgroundImage='none';
+    stripe.style.left='0px';
+    stripe.style.right='0px';
+    stripe.style.top='0px';
+    stripe.style.bottom='0px';
+    // ガターと同じ端数スクロール補正: container に translateY(offset) を適用
+    // 行個別の top には offset を含めない
+    var frag = [];
+    var viewStart = startLine + 1; // 1-based
+    var viewEnd = endLine; // 1-based
+  var padTopInt = padTop; // 端数を保持し本文ストライプとガター padding を完全一致
+    for (var lnum = viewStart; lnum <= viewEnd; lnum++){
+      if (lnum % 2 === 0){
+        // startLine 基準で相対行インデックスを使い、スクロール端数は container transform に任せる
+        var relIndex = (lnum - 1) - startLine; // 0-based within visible block
+        if (relIndex < 0) continue;
+        var lineTop = padTopInt + relIndex * lhExact;
+        if (lineTop + lhExact < -lhExact || lineTop > editor.clientHeight + lhExact) continue;
+        frag.push('<div style="position:absolute;left:0;right:0;top:'+lineTop+'px;height:'+lhExact+'px;background:'+window.THEME.stripeEvenColor+';pointer-events:none;"></div>');
+      }
+    }
+    // EOF 以降塗り潰し (最終行下端より下だけ single fill)。最終行 index: total-1
+    try{
+      var lastLineIdx = total - 1; if (lastLineIdx < 0) lastLineIdx = 0;
+      var afterLastTop = padTop + (lastLineIdx+1 - startLine) * lhExact; // next line top relative container
+      // 可視領域内に余地がある場合のみ追加
+      if (afterLastTop < editor.clientHeight){
+        if (afterLastTop < 0) afterLastTop = 0;
+        frag.push('<div style="position:absolute;left:0;right:0;top:'+afterLastTop+'px;bottom:0;background:'+window.THEME.eofFillColor+';pointer-events:none;"></div>');
+      }
+    }catch(_){ }
+    stripe.innerHTML = frag.join('');
+  // offset は scrollTop % 行高 由来。padding の端数分も考慮して揺れを低減
+  try{ stripe.style.transform = 'translateY('+transOffset+'px)'; }catch(_){ }
   }
 }
 // ====== scrolloff（表示端からの余白スクロール） ======
