@@ -1,3 +1,83 @@
+// HTA/IE環境で横スクロールバーを確実に出すためwrap="off"を強制
+try{
+  var ed = document.getElementById('editor');
+  if(ed) ed.wrap = 'off';
+}catch(_){}
+// 起動時にエディタサイズとウインドウサイズを静的変数で調整
+function applyStaticEditorSizeAndWindow(){
+  try{
+    var ed = document.getElementById('editor');
+    if (!ed || typeof TEXTAREA_WIDTH==='undefined' || typeof TEXTAREA_HEIGHT==='undefined') return;
+    // 文字幅・行高を取得
+    var cw = (typeof getCharWidthPx==='function') ? getCharWidthPx(ed) : 10;
+    var lh = (typeof getLineHeightPx==='function') ? getLineHeightPx(ed) : 20;
+    // padding, border, scrollbar幅
+    var style = window.getComputedStyle ? getComputedStyle(ed) : ed.currentStyle;
+    var padL = parseFloat(style.paddingLeft)||0, padR = parseFloat(style.paddingRight)||0;
+    var padT = parseFloat(style.paddingTop)||0, padB = parseFloat(style.paddingBottom)||0;
+    var borderL = parseFloat(style.borderLeftWidth)||0, borderR = parseFloat(style.borderRightWidth)||0;
+    var borderT = parseFloat(style.borderTopWidth)||0, borderB = parseFloat(style.borderBottomWidth)||0;
+    var scrollbarW = 16; // IE/HTA標準
+    // 横幅: 文字数×文字幅 + padding + border + スクロールバー
+    var targetW = Math.round(TEXTAREA_WIDTH * cw + padL + padR + borderL + borderR + scrollbarW);
+    // 縦幅: 行数×行高 + padding + border
+    var targetH = Math.round(TEXTAREA_HEIGHT * lh + padT + padB + borderT + borderB);
+    // エディタ要素に反映
+  // textareaサイズはCSSに任せる（width/heightは設定しない）
+    // ウインドウ全体を調整（ガター/ステータスバー分を加算）
+    var gutter = document.getElementById('gutter');
+    var gutterW = gutter && gutter.offsetWidth ? gutter.offsetWidth : 0;
+    var cmdbar = document.getElementById('cmdbar');
+    var cmdH = cmdbar && cmdbar.offsetHeight ? cmdbar.offsetHeight : 0;
+  var extraW = gutterW + 8; // 最小余白
+    var extraH = cmdH + 48;   // 下部余白
+  // ウインドウのクライアント幅を取得し、右端が一致するよう補正
+  var chromeW = (window.outerWidth && document.documentElement && document.documentElement.clientWidth) ? (window.outerWidth - document.documentElement.clientWidth) : 0;
+  window.resizeTo(targetW + chromeW, targetH + extraH);
+  }catch(_){ }
+}
+
+// ウインドウリサイズ時にエディタ（textarea）が常に pane の残り高さ/幅を占有するよう調整
+function syncEditorSize(){
+  try{
+    var ed = document.getElementById('editor');
+    var pane = document.getElementById('pane');
+    if(!ed || !pane) return;
+    // pane 高さはウインドウ全体から cmdbar を除いた残り
+    var cmd = document.getElementById('cmdbar');
+    var h = window.innerHeight || (document.documentElement && document.documentElement.clientHeight) || 0;
+    var ch = cmd ? cmd.offsetHeight : 0;
+    var targetH = h - ch;
+    if (targetH > 0) ed.style.height = targetH + 'px';
+    // 横幅は pane のクライアント幅に追従（flex:1 だが IE/HTA での再計算遅延対策）
+    var w = pane.clientWidth || (window.innerWidth || 0);
+    if (w > 0) ed.style.width = w + 'px';
+    // デバッグ: 長い行があるか計測し、scrollWidth と clientWidth をログ
+    if (window._debugHScroll){
+      try{
+        var sw = ed.scrollWidth, cw = ed.clientWidth;
+        if (typeof showMsg==='function') showMsg('hscroll dbg sw='+sw+' cw='+cw, 1200);
+      }catch(_){ }
+    }
+  }catch(_){ }
+}
+try{
+  if (window.addEventListener){
+    window.addEventListener('resize', function(){ syncEditorSize(); });
+  }else if (window.attachEvent){
+    window.attachEvent('onresize', function(){ syncEditorSize(); });
+  }
+}catch(_){ }
+
+// 初期同期（applyStaticEditorSizeAndWindow 後）
+try{ setTimeout(syncEditorSize, 400); }catch(_){ }
+
+// 起動時に一度だけ実行
+try{
+  if (window.addEventListener) window.addEventListener('DOMContentLoaded', applyStaticEditorSizeAndWindow, false);
+  else if (window.attachEvent) window.attachEvent('onload', applyStaticEditorSizeAndWindow);
+  else setTimeout(applyStaticEditorSizeAndWindow, 300);
+}catch(_){ setTimeout(applyStaticEditorSizeAndWindow, 300); }
 function updateModifiedFlag(){
   window.modified = (modifiedCount > 0);
 }
@@ -1122,12 +1202,12 @@ function updateGutter() {
   var stripe = document.getElementById('edstripe');
   if (!OPT.number) {
     gutter.style.display='none';
-    editor.style.paddingLeft='10px';
+  editor.style.paddingLeft='0.5rem';
     if (stripe) stripe.style.display='none';
     return;
   }
   gutter.style.display='block';
-  editor.style.paddingLeft='82px';
+  editor.style.paddingLeft='0.5rem';
   var text = editor.value;
   var total = totalLines(text);
   var lh = getLineHeightPx(editor);

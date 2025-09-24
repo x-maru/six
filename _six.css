@@ -1,11 +1,16 @@
+  /* stray global white-space removed */
+  html {
+    font-size: 18px;
+  }
   html, body {
     height: 100%;
     margin: 0;
     background: #1e1f22;
     color: #ddd;
-    font-family: Consolas, "Courier New", monospace;
+    font-family: "Cascadia Code", "Consolas", "游ゴシック Light", "Yu Gothic", "Meiryo", "MS Gothic", monospace;
+    overflow: hidden; /* 外側の縦スクロールを抑止 */
   }
-  #pane { position: relative; height: 100%; }
+  #pane { display: flex; height: 100%; overflow: visible; }
   /* 本文ストライプ（偶数行デバッグ用オーバーレイ） */
   #edstripe {
     position: absolute; top: 0; bottom: 0; left: 0; right: 0;
@@ -14,28 +19,21 @@
   }
   /* 行番号ガター */
   #gutter {
-    position: absolute; top: 0; bottom: 0; left: 0;
-    width: 72px; background: #1b1c1f; border-right: 1px solid #3b3d42;
-    color: #c0c0c0; text-align: right; padding-right: 8px; box-sizing: border-box;
-    font-size: 21px; line-height: 1.6; pointer-events: none; overflow: hidden;
-    z-index: 2; /* ←追加 */
+    position: static;
+    width: 4.0rem; background: #1b1c1f; border-right: 1px solid #3b3d42;
+    color: #c0c0c0; text-align: right; padding-right: 0.45rem; box-sizing: border-box;
+    font-size: 1.0rem; line-height: 1.6; pointer-events: none; overflow: hidden;
+    z-index: 2;
+    height: 100%;
   }
   #gutter .ln { height: auto; }
-  /* 本文 */
-  #editor {
-    position: absolute; top: 0; bottom: 0; right: 0; left: 0;
-    width: 100%; height: 100%;
-    box-sizing: border-box; padding: 10px; padding-left: 82px; /* number=on */
-    background: transparent; color: #ddd; border: none; outline: none; resize: none;
-    font-size: 21px; line-height: 1.6; caret-color: #fff;
-    z-index: 1; /* ストライプより上に表示 */
-  }
+  /* 本文 (#editor) 初期版は absolute + padding-left でガターと重複していたため削除・統合 */
   /* コマンドバー（:） */
   #cmdbar {
     position: absolute; left: 0; right: 0; bottom: 0;
-    height: 64px;
+    height: 3.6rem;
     background: #222; color: #fff;
-    border-top: 1px solid #3b3d42; font-size: 14px;
+    border-top: 1px solid #3b3d42; font-size: 0.78rem;
   display: flex; flex-direction: column; z-index: 50;
   }
   #statusline1 {
@@ -67,8 +65,8 @@
   }
   #cmdprefix, #cmdline {
     position: static;
-    font-size: 14px;
-    height: 28px;
+    font-size: 0.78rem;
+    height: 1.55rem;
     margin: 0;
     background: #232323;
     color: #fff;
@@ -78,8 +76,8 @@
     vertical-align: middle;
   }
   #cmdline {
-    width: calc(100% - 32px);
-    padding: 4px 12px;
+    width: calc(100% - 1.8rem);
+    padding: 0.22rem 0.66rem;
     border: 1px solid #3b3d42;
     color: #fff;
     background: #232323;
@@ -88,73 +86,71 @@
     margin-left: 0;
     margin-right: 0;
     display: none;
-    height: 28px;
+    height: 1.55rem;
   }
   #cmdmsg {
     display: none;
     position: absolute;
     left: 0; top: 0; width: 100%; height: 100%;
     background: #232323; color: #ffd;
-    font-size: 14px;
-    padding: 4px 12px;
+    font-size: 0.78rem;
+    padding: 0.22rem 0.66rem;
     box-sizing: border-box;
-    border-radius: 4px;
+    border-radius: 0.22rem;
     display: flex;
     align-items: center;
     justify-content: flex-start;
     z-index: 12;
-    height: 28px;
+    height: 1.55rem;
   }
   /* ヘルプオーバーレイ */
   #help {
     position: absolute; left: 5%; right: 5%; top: 8%; bottom: 8%;
-    border: 1px solid #3b3d42; background: rgba(30,31,34,0.98);
-    display: none; z-index: 4; box-shadow: 0 8px 24px rgba(0,0,0,.4);
-    padding: 16px; overflow: hidden; font-size: 14px; line-height: 1.6; /* ← overflow を hidden に */
+    border: 0.055rem solid #3b3d42; background: rgba(30,31,34,0.98);
+    display: none; z-index: 4; box-shadow: 0 0.44rem 1.33rem rgba(0,0,0,.4);
+    padding: 0.88rem; overflow: hidden; font-size: 0.9rem; line-height: 1.6; /* ← overflow を hidden に */
   }
-  #help h2 { margin: 0 0 8px; font-size: 16px; }
-  #help kbd {
-    background: #444; color: #fff; padding: 1px 4px; border-radius: 3px; font-size: 12px;
+  #help h2 { margin: 0 0 0.44rem; font-size: 0.89rem; }
+  #editor {
+    position: static;
+    box-sizing: border-box;
+    padding: 0.55rem 0.55rem 0.55rem 0.5rem; /* 左 0.5rem 視認性余白 */
+    background: transparent;
+    color: #ddd;
+    outline: none;
+    resize: none; /* ウインドウリサイズで追従させるので手動 resizing は無効化 */
+    font-size: 1.0rem;
+    line-height: 1.6;
+    caret-color: red;
+    z-index: 1;
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    overflow-x: auto; /* wrap=off 時に長い行で水平スクロール */
+    overflow-y: auto;
+    flex: 1 1 auto;
   }
-  #help pre { background:#15161a; padding:8px; overflow:auto; }
-  /* IME debug overlay */
-  #imeLogOverlay { position:fixed; left:8%; top:8%; width:84%; height:76%; background:#0f1116; color:#d1d5db; border:1px solid #3b4252; z-index:9999; display:none; box-shadow:0 8px 24px rgba(0,0,0,0.5); }
-  #imeLogOverlayHeader { padding:8px; background:#1b1f2a; border-bottom:1px solid #2a2f3a; display:flex; align-items:center; justify-content:space-between; }
-  #imeLogOverlayHeader span { font-weight:bold; }
-  #imeLogClose { cursor:pointer; padding:2px 8px; border:1px solid #4b5563; border-radius:3px; }
-  #imeLogText { width:100%; height:calc(100% - 38px); box-sizing:border-box; background:#0b0d12; color:#e5e7eb; font-family:Consolas,monospace; font-size:12px; padding:8px; border:0; outline:none; resize:none; }
-  /* 追加: ヘルプのスクロール領域/固定フッター */
-  #helpScroll {
-    position: absolute; left: 16px; right: 16px; top: 16px; bottom: 48px;
-    overflow: auto; outline: none;
-  }
-  #helpFooter {
-    position: absolute; left: 16px; right: 16px; bottom: 12px; height: 32px;
-    text-align: right;
-    font-size: 15px; /* 文字を少し大きく */
-  }
-  /* 追加: フッター左側にヘルプ用キー案内 */
   #helpKeys {
-    float: left; color: #bbb; font-size: 15px; line-height: 32px;
+    float: left; color: #bbb; font-size: 0.83rem; line-height: 1.77rem;
   }
   /* ちょいメッセージ（右下トースト） */
   #msg {
-    position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 60;
+    position: absolute; left: 50%; bottom: 0.66rem; transform: translateX(-50%); z-index: 60;
     background: #2b2d31; border: 1px solid #3b3d42; color: #ddd;
-    padding: 6px 10px; border-radius: 4px; font-size: 12px; display: none;
+    padding: 0.33rem 0.55rem; border-radius: 0.22rem; font-size: 0.67rem; display: none;
     pointer-events: none;
   }
   /* ステータスバー */
   #statusbar {
     position: absolute; left: 0; right: 0; bottom: 0;
-    height: 28px; background: #222; color: #fff;
-    border-top: 1px solid #3b3d42; font-size: 14px;
-    display: flex; align-items: center; padding-left: 12px; z-index: 10;
+    height: 1.55rem; background: #222; color: #fff;
+    border-top: 1px solid #3b3d42; font-size: 0.78rem;
+    display: flex; align-items: center; padding-left: 0.66rem; z-index: 10;
   }
   #statusline2 {
     width: 100%;
-    height: 28px;
-    border-top: 2px solid #555;
+    height: 1.55rem;
+    border-top: 0.11rem solid #555;
     background: #232323;
     position: relative;
   z-index: 51;
