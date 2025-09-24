@@ -158,8 +158,17 @@ var TEXTAREA_HEIGHT = 32;
 // ====== THEME 定数（後で直接編集で調整） ======
 // 動的変更は想定しないため単純なリテラル。run-command 側から参照。
 var THEME = {
-  stripeEvenColor: 'darkSlateGray', // 偶数行背景
-  eofFillColor: 'gray'              // EOF 以降の塗り潰し
+  stripeEvenColor: 'darkSlateGray' // 偶数行背景
+  ,eofFillColor: 'gray'             // EOF 以降の塗り潰し
+  ,gradientLineStart: 'rgb(243,251,243)' // 行背景グラデーション開始色
+  ,gradientLineEnd: 'rgb(231,239,231)'    // 行背景グラデーション終了色
+  ,activeLineGradientStart: 'rgb(231,255,231)'   // 本文アクティブ行背景開始
+  ,activeLineGradientEnd: 'rgb(219,243,219)'     // 本文アクティブ行背景終了
+  ,gutterGradientStart: 'rgb(235,239,235)' // ガター行背景グラデーション開始色
+  ,gutterGradientEnd: 'rgb(219,227,219)'    // ガター行背景グラデーション終了色
+  ,gutterActiveGradientStart: 'rgb(211,231,211)' // アクティブ行ガター開始色
+  ,gutterActiveGradientEnd: 'rgb(195,215,195)'      // アクティブ行ガター終了色
+  ,gutterActiveTextColor: 'rgb(143,31,95)'        // アクティブ行ガター文字色
 };
 
   </script>

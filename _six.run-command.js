@@ -254,6 +254,8 @@ function setCaret(editor,pos){ pos=Math.max(0,Math.min((editor.value||'').length
       if (__b) { __b.pos=pos|0; __b.selStart=pos|0; __b.selEnd=pos|0; __b.scrollTop = editor.scrollTop|0; }
     }
   }catch(_){ }
+  // カーソル移動直後にガターを即反映（視覚ラグ低減）
+  try{ if (typeof updateGutter==='function') updateGutter(); }catch(_){ }
 }
 function setSelection(editor,a,b){
   var s=(a|0), e=(b|0); if (e<s){ var t=s; s=e; e=t; }
@@ -273,6 +275,8 @@ function setSelection(editor,a,b){
       if (__b) { __b.pos=e|0; __b.selStart=s|0; __b.selEnd=e|0; __b.scrollTop = editor.scrollTop|0; }
     }
   }catch(_){ }
+  // 選択変更後も即時ガター更新（カーソル行ハイライト同期）
+  try{ if (typeof updateGutter==='function') updateGutter(); }catch(_){ }
 }
 function lineStartIndex(text,pos){ return text.lastIndexOf('\n', Math.max(0,pos-1)) + 1; }
 function lineEndIndex(text,pos){ var i=text.indexOf('\n', pos); return (i===-1)?text.length:i; }
@@ -1229,11 +1233,28 @@ function updateGutter() {
   var visible = Math.ceil(effHeight / lhExact) + 1;
   var endLine = Math.min(total, startLine + visible);
   var html = [];
+  // ガター用グラデーション色（本文とは別指定可）
+  var ggs = (window.THEME && window.THEME.gutterGradientStart) ? window.THEME.gutterGradientStart : (window.THEME.gradientLineStart || 'rgb(243,247,243)');
+  var gge = (window.THEME && window.THEME.gutterGradientEnd) ? window.THEME.gutterGradientEnd : (window.THEME.gradientLineEnd   || 'rgb(231,239,231)');
+  // 絶対配置オーバーレイを置くため relative 化（複数回呼ばれても副作用なし）
+  if (!gutter.style.position || gutter.style.position==='static') gutter.style.position='relative';
+  // 上パディング領域にもグラデーション（本文側と同期）
+  if (padTop > 0){
+    html.push('<div style="position:absolute;left:0;right:0;top:0;height:'+padTop+'px;background:linear-gradient(to bottom,'+ggs+','+gge+');pointer-events:none;"></div>');
+  }
+  // カーソル位置の行番号（1-based）を取得
+  var caretPos = (typeof editor.selectionEnd==='number') ? editor.selectionEnd : 0;
+  var caretLine1 = 1; // 1-based
+  try { caretLine1 = getLineCol(text, caretPos).line; } catch(_){ caretLine1 = 1; }
   for (var ln = startLine + 1; ln <= endLine; ln++) {
     // EOF 以降には生成しない（endLine は total で打ち止め）
-    var isEven = (ln % 2 === 0);
-  var bg = isEven ? ('background:'+window.THEME.stripeEvenColor+';') : '';
-  html.push('<div class="ln" style="height:'+lhExact+'px;line-height:'+lhExact+'px;'+bg+'padding-right:0.45rem;">' + ln + '</div>');
+      var useActive = (ln === caretLine1);
+      var sCol = useActive && window.THEME.gutterActiveGradientStart ? window.THEME.gutterActiveGradientStart : ggs;
+      var eCol = useActive && window.THEME.gutterActiveGradientEnd   ? window.THEME.gutterActiveGradientEnd   : gge;
+      var bg = 'background:linear-gradient(to bottom,'+sCol+','+eCol+');';
+  var activeColor = window.THEME.gutterActiveTextColor || 'red';
+  var extra = useActive ? 'color:'+activeColor+';' : '';
+      html.push('<div class="ln" style="height:'+lhExact+'px;line-height:'+lhExact+'px;'+bg+extra+'padding-right:0.45rem;">' + ln + '</div>');
   }
   gutter.innerHTML = html.join('');
   // スクロール端数のみ逆方向に移動（padding の端数も含め同期させる）
@@ -1249,6 +1270,14 @@ function updateGutter() {
       if (fillTop < 0) fillTop = 0;
       if (gutter.style.position==='static' || !gutter.style.position) gutter.style.position='relative';
       gutter.innerHTML += '<div style="position:absolute;left:0;right:0;top:'+fillTop+'px;bottom:0;background:'+window.THEME.eofFillColor+';pointer-events:none;"></div>';
+    }
+    else {
+      // 次行プレビュー領域（endLine+1 行目が部分的に見える場合）に 1 行分グラデーションを追加
+      var nextRelG = (endLine - startLine); // endLine+1 の相対インデックス
+      var nextTopG = padTop + nextRelG * lhExact;
+      if (nextTopG < editor.clientHeight){
+        gutter.innerHTML += '<div style="position:absolute;left:0;right:0;top:'+nextTopG+'px;height:'+lhExact+'px;background:linear-gradient(to bottom,'+ggs+','+gge+');pointer-events:none;"></div>';
+      }
     }
   }catch(_){ }
   // 本文側ストライプ（偶数行背景）: グラデーションから可視行単位生成へ変更（部分表示/EOF越え防止）
@@ -1266,14 +1295,36 @@ function updateGutter() {
     var viewStart = startLine + 1; // 1-based
     var viewEnd = endLine; // 1-based
   var padTopInt = padTop; // 端数を保持し本文ストライプとガター padding を完全一致
+    // グラデーション色（ループ外に一度取得）
+    var gStart = window.THEME.gradientLineStart || 'rgb(251,255,251)';
+    var gEnd   = window.THEME.gradientLineEnd   || 'rgb(243,247,243)';
+    // 上のパディング領域にもグラデーションを敷く（スクロール開始直後の 0.25em ギャップ解消）
+    if (padTopInt > 0){
+      frag.push('<div style="position:absolute;left:0;right:0;top:0;height:'+padTopInt+'px;background:linear-gradient(to bottom,'+gStart+','+gEnd+');pointer-events:none;"></div>');
+    }
+    // カーソル行（本文）を別のグラデーションで上書きするため caret 行を取得
+    var caretPos2 = (typeof editor.selectionEnd==='number') ? editor.selectionEnd : 0;
+    var caretLine2 = 1; try{ caretLine2 = getLineCol(text, caretPos2).line; }catch(_){ caretLine2 = 1; }
+    var activeStart = window.THEME.activeLineGradientStart || 'rgb(191,255,191)';
+    var activeEnd   = window.THEME.activeLineGradientEnd   || 'rgb(180,210,180)';
     for (var lnum = viewStart; lnum <= viewEnd; lnum++){
-      if (lnum % 2 === 0){
-        // startLine 基準で相対行インデックスを使い、スクロール端数は container transform に任せる
-        var relIndex = (lnum - 1) - startLine; // 0-based within visible block
-        if (relIndex < 0) continue;
-        var lineTop = padTopInt + relIndex * lhExact;
-        if (lineTop + lhExact < -lhExact || lineTop > editor.clientHeight + lhExact) continue;
-        frag.push('<div style="position:absolute;left:0;right:0;top:'+lineTop+'px;height:'+lhExact+'px;background:'+window.THEME.stripeEvenColor+';pointer-events:none;"></div>');
+      // 全行に縦方向グラデーション背景
+      var relIndex = (lnum - 1) - startLine;
+      if (relIndex < 0) continue;
+      var lineTop = padTopInt + relIndex * lhExact;
+      if (lineTop + lhExact < -lhExact || lineTop > editor.clientHeight + lhExact) continue;
+      if (lnum === caretLine2){
+        frag.push('<div style="position:absolute;left:0;right:0;top:'+lineTop+'px;height:'+lhExact+'px;background:linear-gradient(to bottom,'+activeStart+','+activeEnd+');pointer-events:none;"></div>');
+      } else {
+        frag.push('<div style="position:absolute;left:0;right:0;top:'+lineTop+'px;height:'+lhExact+'px;background:linear-gradient(to bottom,'+gStart+','+gEnd+');pointer-events:none;"></div>');
+      }
+    }
+    // 次行プレビュー領域（endLine のさらに次の行が部分的に見えている場合）にも 1 行分グラデーションを拡張
+    if (endLine < total){
+      var nextRel = (endLine - startLine); // endLine+1 の相対インデックス（0-based）
+      var nextTop = padTopInt + nextRel * lhExact;
+      if (nextTop < editor.clientHeight){
+        frag.push('<div style="position:absolute;left:0;right:0;top:'+nextTop+'px;height:'+lhExact+'px;background:linear-gradient(to bottom,'+gStart+','+gEnd+');pointer-events:none;"></div>');
       }
     }
     // EOF 以降塗り潰し (最終行下端より下だけ single fill)。最終行 index: total-1

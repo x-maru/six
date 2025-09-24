@@ -110,13 +110,21 @@
     display: none; z-index: 4; box-shadow: 0 0.44rem 1.33rem rgba(0,0,0,.4);
     padding: 0.88rem; overflow: hidden; font-size: 0.9rem; line-height: 1.6; /* ← overflow を hidden に */
   }
+  /* スクロールコンテナ（キー操作 j/k/gg/G 用）: 親を overflow:hidden のまま内部のみスクロール可能にする */
+  #helpScroll {
+    overflow-y: auto;
+    height: calc(100% - 2.2rem); /* フッタ分を差し引き */
+    box-sizing: border-box;
+    padding-right: 0.4rem; /* クリップされる末尾文字余裕 */
+  }
+  #helpFooter { height: 2.2rem; box-sizing: border-box; }
   #help h2 { margin: 0 0 0.44rem; font-size: 0.89rem; }
   #editor {
     position: static;
     box-sizing: border-box;
     padding: 0.55rem 0.55rem 0.55rem 0.5rem; /* 左 0.5rem 視認性余白 */
     background: transparent;
-    color: #ddd;
+    color: rgb(0,15,0);
     outline: none;
     resize: none; /* ウインドウリサイズで追従させるので手動 resizing は無効化 */
     font-size: 1.0rem;
@@ -130,9 +138,10 @@
     overflow-y: auto;
     flex: 1 1 auto;
   }
-  #helpKeys {
-    float: left; color: #bbb; font-size: 0.83rem; line-height: 1.77rem;
-  }
+  #helpFooter { display:flex; align-items:center; justify-content:space-between; padding:0 0.4rem; }
+  #helpKeys { color: #bbb; font-size: 0.83rem; line-height: 1.77rem; margin-right:0.66rem; }
+  #helpFooter button { margin-left:auto; }
+  #helpScroll:focus { outline:none; }
   /* ちょいメッセージ（右下トースト） */
   #msg {
     position: absolute; left: 50%; bottom: 0.66rem; transform: translateX(-50%); z-index: 60;
