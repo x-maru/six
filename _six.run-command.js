@@ -93,6 +93,29 @@ function updateModifiedFlag(){
   // アクティブタブの * 表示を即時更新
   try{ if (typeof updateTabBar==='function') updateTabBar(); }catch(_){ }
 }
+
+// いずれかのバッファが未保存変更を持つか判定
+function anyBufferModified(){
+  try{
+    if (typeof Buffers==='object' && Buffers.list){
+      for (var i=0;i<Buffers.list.length;i++){
+        var b=Buffers.list[i]; if(!b) continue;
+        var dirty = (b.modifiedCount|0) > 0;
+        if (!dirty && typeof b.text==='string' && typeof b.baselineText==='string' && b.text !== b.baselineText) dirty = true;
+        if (dirty) return true;
+      }
+    }else{
+      return (modifiedCount|0)>0;
+    }
+  }catch(_){ return (modifiedCount|0)>0; }
+  return false;
+}
+
+// HTA の onbeforeunload ダイアログは UX が悪いため使用しない（:q のみで警告）
+// X/Alt+F4 を :q 相当として扱い、未保存バッファがあれば閉じずメッセージ表示。
+// 既存のブラウザ標準ダイアログを避けるため return 値は返さず、独自メッセージだけ表示して false を返す。
+// NOTE: HTA の onbeforeunload はダイアログ抑止が困難で UX 悪化したため無効化（X は OS 標準で閉じる）。
+try{ window.onbeforeunload = null; }catch(_){ }
 function setBaseline(text){
   baselineText = text;
   modifiedCount = 0;
@@ -2250,17 +2273,20 @@ function runCommand(s){
   // 強制終了
   if (/^q!$/i.test(s)) {
     closeCmdBar();
+    try{ window._forceQuitFlag = true; }catch(_){ }
     window.close();
     return;
   }
   // quit（警告あり）
   if (/^q$/i.test(s)) {
-    if (modifiedCount > 0) {
-      closeCmdBar();
-      showMsgAuto('編集内容が保存されていません', 1600);
-      try{ var __ed=document.getElementById('editor'); if(__ed) __ed.focus(); }catch(_){ }
-      return;
-  }
+    try{
+      if (anyBufferModified && anyBufferModified()){
+        closeCmdBar();
+        try{ showMsgAuto('未保存のバッファがあります。強制終了は :q!', 2200); }catch(_){ }
+        try{ var __ed=document.getElementById('editor'); if(__ed) __ed.focus(); }catch(_){ }
+        return;
+      }
+    }catch(_){ }
     closeCmdBar();
     window.close();
     return;
