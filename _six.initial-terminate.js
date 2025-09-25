@@ -33,3 +33,18 @@
   };
 })();
 
+// 起動後少し遅延してネイティブキャレット隠蔽クラスを再適用（初期レンダ／フォーカス競合対策）
+(function(){
+  try{
+    setTimeout(function(){
+      try{
+        var ed=document.getElementById('editor');
+        if(ed){
+          if((' '+ed.className+' ').indexOf(' hide-native-caret ')<0){ ed.className += ' hide-native-caret'; }
+          if (typeof window._repositionCaret==='function') window._repositionCaret();
+        }
+      }catch(_){ }
+    }, 80);
+  }catch(_){ }
+})();
+

@@ -254,16 +254,15 @@ function setCaret(editor,pos){ pos=Math.max(0,Math.min((editor.value||'').length
       if (__b) { __b.pos=pos|0; __b.selStart=pos|0; __b.selEnd=pos|0; __b.scrollTop = editor.scrollTop|0; }
     }
   }catch(_){ }
-  // カーソル移動直後にガターを即反映（視覚ラグ低減）
+  // カーソル移動直後にガター/キャレットを即反映（視覚ラグ低減）
   try{ if (typeof updateGutter==='function') updateGutter(); }catch(_){ }
+  try{ if (typeof _repositionCaret==='function') _repositionCaret(); }catch(_){ }
 }
 function setSelection(editor,a,b){
   var s=(a|0), e=(b|0); if (e<s){ var t=s; s=e; e=t; }
   var len=(editor.value||'').length|0; s=Math.max(0,Math.min(len,s)); e=Math.max(0,Math.min(len,e));
   if (editor && editor.createTextRange){
-    try{
-      var r=editor.createTextRange(); r.collapse(true); r.moveStart('character', s); r.moveEnd('character', e-s); r.select();
-    }catch(_){ }
+    try{ var r=editor.createTextRange(); r.collapse(true); r.moveStart('character', s); r.moveEnd('character', e-s); r.select(); }catch(_){ }
   } else if (editor && editor.setSelectionRange){
     try{ editor.setSelectionRange(s,e); }catch(_){ }
   }
@@ -275,8 +274,9 @@ function setSelection(editor,a,b){
       if (__b) { __b.pos=e|0; __b.selStart=s|0; __b.selEnd=e|0; __b.scrollTop = editor.scrollTop|0; }
     }
   }catch(_){ }
-  // 選択変更後も即時ガター更新（カーソル行ハイライト同期）
+  // 選択変更後も即時ガター/キャレット更新（カーソル行ハイライト同期）
   try{ if (typeof updateGutter==='function') updateGutter(); }catch(_){ }
+  try{ if (typeof _repositionCaret==='function') _repositionCaret(); }catch(_){ }
 }
 function lineStartIndex(text,pos){ return text.lastIndexOf('\n', Math.max(0,pos-1)) + 1; }
 function lineEndIndex(text,pos){ var i=text.indexOf('\n', pos); return (i===-1)?text.length:i; }
@@ -753,6 +753,8 @@ function setMode(newMode, editor){
   var prev = mode;
   mode=newMode;
   document.getElementById('mode').innerText='['+mode+']';
+  // ネイティブキャレット隠蔽クラス再評価（INSERTでのみ隠す方針）
+  try{ if (typeof window._reEvalHideNativeCaret==='function') window._reEvalHideNativeCaret(); }catch(_){ }
   if(mode===MODE_INSERT){
     if(!insertSessionActive){
       pushUndo('insert-begin');
@@ -1103,6 +1105,7 @@ function renderVisSelOverlay(selStart, selEnd){
 }
 function showHelp(){
   var h = document.getElementById('help');
+  try{ var ed=document.getElementById('editor'); if(ed){ ed.blur(); } }catch(_){ }
   h.style.display = 'block';
   // ヘルプにフォーカス（カーソルは表示されない）
   var sc = document.getElementById('helpScroll');
@@ -1110,10 +1113,16 @@ function showHelp(){
     try{ sc.scrollTop = 0; }catch(_){ }
     sc.focus();
   }
+  try{ if (window._caretLayer) window._caretLayer.style.display='none'; }catch(_){ }
 }
 function hideHelp(){
   document.getElementById('help').style.display='none';
   hideMsg();
+  // エディタにフォーカスを戻し、キャレットを再描画
+  try{
+    var ed=document.getElementById('editor');
+    if (ed){ ed.focus(); if (typeof window._repositionCaret==='function') window._repositionCaret(); }
+  }catch(_){ }
 }
 function toggleHelp(){ var h=document.getElementById('help'); h.style.display = (h.style.display==='block'?'none':'block'); }
 // === ヘルプ用キーバインド（j/k/↓/↑/gg/G/ESC のみ受け付け） ===
@@ -2607,10 +2616,12 @@ function ensureWindowResizer(){
         return;
     }
     handleMove(editor,target,selecting);
+    try{ if (typeof _repositionCaret==='function') _repositionCaret(); }catch(_){ }
   });
   // スクロール/入力/リサイズ
   _safeAdd(editor, 'scroll', function(){
     updateGutter();
+    try{ if (typeof _repositionCaret==='function') _repositionCaret(); }catch(_){ }
     try{
       if (window._visSelActive && window._lastVisualSel && typeof renderVisSelOverlay==='function'){
         var vs = window._lastVisualSel; renderVisSelOverlay(vs.s|0, vs.e|0);
@@ -2618,6 +2629,7 @@ function ensureWindowResizer(){
     }catch(_){ }
   });
   _safeAdd(editor, 'input',  function(){
+    try{ if (typeof _repositionCaret==='function') _repositionCaret(); }catch(_){ }
     try{
       // まず pending の消化を最優先で試みる（composition中でも処理）
       var __now0 = (new Date()).getTime();
@@ -3656,6 +3668,62 @@ function _getStartupArgFromQuery(){
       _openFileOrNewOnStartup(path);
     }catch(e){}
   })();
+})();
+
+// === ネイティブキャレット隠蔽クラスの制御と IME 合成テキスト配慮 ===
+(function bindCaretVisibility(){
+  try{
+    var ed = document.getElementById('editor');
+    if (!ed) return;
+    var add = function(){ try{ ed.className = (ed.className||'') + ((' ' + ed.className + ' ').indexOf(' hide-native-caret ')>=0?'':' hide-native-caret'); }catch(_){ } };
+    var remove = function(){ try{ ed.className = (' ' + (ed.className||'') + ' ').replace(/\s+hide-native-caret\s*/g,' ').replace(/^\s+|\s+$/g,''); }catch(_){ } };
+    function helpVisible(){ var h=document.getElementById('help'); return !!(h && h.style.display==='block'); }
+    function update(){
+      try{
+        // INSERT モードのみネイティブキャレットを隠し、NORMAL/VISUAL では残す方針へ切替（副作用抑制）
+        var shouldHide = (typeof mode!=='undefined' && mode===MODE_INSERT) && !helpVisible() && !window._imeComposing;
+        if (shouldHide) add(); else remove();
+      }catch(_){ }
+      try{ if (typeof window._repositionCaret==='function') window._repositionCaret(); }catch(_){ }
+    }
+    window._reEvalHideNativeCaret = update;
+    var onFocus = function(){ update(); };
+    var onBlur  = function(){ remove(); if (window._caretLayer) window._caretLayer.style.display='none'; };
+    var onCompStart = function(){ window._imeComposing = true; update(); };
+    var onCompEnd   = function(){ window._imeComposing = false; update(); };
+    var onKeyOrInput = function(){ update(); };
+  var onClick = function(){ update(); try{ setTimeout(update,0); }catch(_){ } };
+    if (ed.addEventListener){
+      ed.addEventListener('focus', onFocus);
+      ed.addEventListener('blur', onBlur);
+      ed.addEventListener('compositionstart', onCompStart);
+      ed.addEventListener('compositionend', onCompEnd);
+      ed.addEventListener('keydown', onKeyOrInput);
+      ed.addEventListener('input', onKeyOrInput);
+      ed.addEventListener('click', onClick);
+    } else if (ed.attachEvent){
+      ed.attachEvent('onfocus', onFocus);
+      ed.attachEvent('onblur', onBlur);
+      // IE 限定: composition イベントが無い場合のフォールバックとして keydown/input で update
+      ed.attachEvent('onkeydown', onKeyOrInput);
+      ed.attachEvent('oninput', onKeyOrInput);
+      ed.attachEvent('onclick', onClick);
+    }
+    // ウィンドウのフォーカス変化でも更新
+    try{ if (window.addEventListener) window.addEventListener('focus', update); else if (window.attachEvent) window.attachEvent('onfocus', update); }catch(_){ }
+    try{ if (window.addEventListener) window.addEventListener('blur', onBlur); else if (window.attachEvent) window.attachEvent('onblur', onBlur); }catch(_){ }
+    // 初期状態で適用しておく
+    update();
+    // 万一の取りこぼし対策（低頻度ポーリング）
+  // ポーリングは高頻度をやめ低頻度化（不要な class 操作を減らす）
+  try{ window.setInterval(update, 2000); }catch(_){ }
+    // ヘルプ表示/非表示後にも update が呼ばれるようにフック（既に show/hideHelp では blur/focus 済みだが保険）
+    try{
+      var _origShow=window.showHelp, _origHide=window.hideHelp;
+  window.showHelp=function(){ try{ _origShow(); }catch(_){ } try{ update(); }catch(_){ } };
+  window.hideHelp=function(){ try{ _origHide(); }catch(_){ } try{ update(); }catch(_){ } };
+    }catch(_){ }
+  }catch(_){ }
 })();
   function buildBufferCompletions(prefix){
     var vals=[], labels=[];

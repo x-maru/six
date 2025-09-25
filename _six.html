@@ -44,7 +44,7 @@
       <h2>起動時オプション（ファイルを渡して開く）</h2>
       <ul>
         <li>同フォルダ: <code>six.hta README.txt</code></li>
-        <li>フルパス: <code>mshta.exe "C:\path\to\six.hta" "C:\path\to\memo.txt"</code></li>
+        <li>フルパス: <code>six.hta "C:\path\to\memo.txt"</code></li>
         <li>空白を含むパスは引用符で囲む</li>
         <li>相対パスは「six.hta のあるフォルダ」を基準に解決</li>
         <li>存在すれば <strong>Loaded:</strong>、無ければ <strong>New file:</strong>（編集フラグ=0で開始）</li>
@@ -162,7 +162,7 @@ var THEME = {
   stripeEvenColor: 'darkSlateGray' // 偶数行背景
   ,eofFillColor: 'gray'             // EOF 以降の塗り潰し
   ,gradientLineStart: 'rgb(243,251,243)' // 行背景グラデーション開始色
-  ,gradientLineEnd: 'rgb(231,239,231)'    // 行背景グラデーション終了色
+  ,gradientLineEnd: 'rgb(237,243,237)'    // 行背景グラデーション終了色
   ,activeLineGradientStart: 'rgb(231,255,231)'   // 本文アクティブ行背景開始
   ,activeLineGradientEnd: 'rgb(219,243,219)'     // 本文アクティブ行背景終了
   ,gutterGradientStart: 'rgb(235,239,235)' // ガター行背景グラデーション開始色
@@ -170,6 +170,11 @@ var THEME = {
   ,gutterActiveGradientStart: 'rgb(211,231,211)' // アクティブ行ガター開始色
   ,gutterActiveGradientEnd: 'rgb(195,215,195)'      // アクティブ行ガター終了色
   ,gutterActiveTextColor: 'rgb(143,31,95)'        // アクティブ行ガター文字色
+  // 自前キャレット（色/パディング）
+  ,caretGradientStart: 'rgba(255,0,0,1.0)'
+  ,caretGradientEnd:   'rgba(255,0,0,0.0)'
+  ,caretPadRem: 0.1667   // 上下 padding (rem)。font-size:18px のとき約3px
+  ,caretShrinkRem: 0.1111 // 横幅縮小量 (rem)。font-size:18px のとき約2px 短く
 };
 
   </script>

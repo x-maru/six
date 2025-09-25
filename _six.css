@@ -123,13 +123,13 @@
     position: static;
     box-sizing: border-box;
     padding: 0.55rem 0.55rem 0.55rem 0.5rem; /* 左 0.5rem 視認性余白 */
-    background: transparent;
-    color: rgb(0,15,0);
+   background: transparent;
+   color: rgb(0,15,0);
     outline: none;
     resize: none; /* ウインドウリサイズで追従させるので手動 resizing は無効化 */
     font-size: 1.0rem;
     line-height: 1.6;
-    caret-color: red;
+  caret-color: transparent; /* 近代ブラウザ用: 自前描画のキャレットを使用（IE は上のフォールバックで対応） */
     z-index: 1;
     width: 100%;
     min-width: 0;
@@ -137,6 +137,24 @@
     overflow-x: auto; /* wrap=off 時に長い行で水平スクロール */
     overflow-y: auto;
     flex: 1 1 auto;
+  }
+  /* IE/MSHTML 対策: ネイティブキャレットを隠すためのクラス（テキストは text-shadow で表示） */
+  #editor.hide-native-caret {
+    /* IE の caret が transparent を無視する場合があるため、極薄の不透明色を設定 */
+    color: rgba(0,0,0,0.01);
+    text-shadow: 0 0 0 rgb(0,15,0); /* 実際の文字色 */
+    /* caret-color を併用（対応ブラウザ向け） */
+    caret-color: transparent !important;
+  }
+  /* 選択ハイライト中に薄色文字が読めなくならないよう selection を再指定 */
+  #editor.hide-native-caret::selection { background: #264f78; color: rgb(220,255,220); }
+  #editor.hide-native-caret::-moz-selection { background: #264f78; color: rgb(220,255,220); }
+  /* ヘルプ内のキーバインド表を目立たせる */
+  #help kbd {
+    background: rgb(0,191,255);
+    color: #000;
+    border-radius: 0.18rem;
+    padding: 0 0.22rem;
   }
   #helpFooter { display:flex; align-items:center; justify-content:space-between; padding:0 0.4rem; }
   #helpKeys { color: #bbb; font-size: 0.83rem; line-height: 1.77rem; margin-right:0.66rem; }
