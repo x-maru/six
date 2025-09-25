@@ -14,6 +14,10 @@
   scroll="no"
 />
 <link rel="stylesheet" href="_six.css">
+<script>
+  // :b{番号}（スペース無し）即時切替を有効化するフラグ（10バッファ以上では2桁入力で即時）
+  window.ENABLE_BIMMEDIATE = true;
+</script>
 </head>
 <body>
   <!-- 画面下部コマンド/ステータス/メッセージバー（統合） -->
@@ -32,10 +36,17 @@
     </div>
   </div>
   <div id="pane">
-    <div id="edstripe"></div>
-    <div id="gutter"></div>
-    <textarea id="editor" spellcheck="false" wrap="off"
-      placeholder="ここにテキストを入力…&#10;NORMALでは h j k l / ←↓↑→ / w b / ^ 0 $ / gg G、行挿入 o/O、挿入 a/A、行頭 I。&#10;/ と ? で検索、n/N で次/前。&#10;i で INSERT、Esc で NORMAL。:w で保存、:help でヘルプ。"></textarea>
+    <div id="tabbar">
+      <button id="tabScrollLeft" title="前のタブ" onclick="try{scrollTabBar(-1);}catch(_){ }">&#x25C0;</button>
+      <div id="tabsWrap"><div id="tabs"></div></div>
+      <button id="tabScrollRight" title="次のタブ" onclick="try{scrollTabBar(1);}catch(_){ }">&#x25B6;</button>
+    </div>
+    <div id="editArea">
+      <div id="edstripe"></div>
+      <div id="gutter"></div>
+      <textarea id="editor" spellcheck="false" wrap="off"
+        placeholder="ここにテキストを入力…&#10;NORMALでは h j k l / ←↓↑→ / w b / ^ 0 $ / gg G、行挿入 o/O、挿入 a/A、行頭 I。&#10;/ と ? で検索、n/N で次/前。&#10;i で INSERT、Esc で NORMAL。:w で保存、:help でヘルプ。"></textarea>
+    </div>
   </div>
   <!-- ヘルプ（最小の“使えるコマンド一覧”） -->
   <div id="help">
@@ -175,6 +186,16 @@ var THEME = {
   ,caretGradientEnd:   'rgba(255,0,0,0.0)'
   ,caretPadRem: 0.1667   // 上下 padding (rem)。font-size:18px のとき約3px
   ,caretShrinkRem: 0.1111 // 横幅縮小量 (rem)。font-size:18px のとき約2px 短く
+  // --- タブバー配色（未使用なら後続で適用予定） ---
+  ,tabBarBg: 'rgb(27,47,15)'                 // タブバー全体の地色
+  ,tabActiveBg: 'rgb(215,255,231)'         // アクティブタブ背景
+  ,tabActiveText: 'rgb(0,95,31)'            // アクティブタブ文字色
+  ,tabInactiveBg: 'rgb(230,230,230)'       // 非アクティブタブ背景
+  ,tabInactiveText: 'rgb(127,127,127)'     // 非アクティブタブ文字色
+  ,tabButtonBg: 'rgb(115,115,115)'         // スクロールボタン背景
+  ,tabButtonText: 'rgb(115,221,229)'       // スクロールボタン文字色
+  ,tabButtonDisabledBg: 'rgb(243,251,243)'    // スクロールボタン(非活性)背景
+  ,tabButtonDisabledText: 'rgb(231,239,231)' // スクロールボタン(非活性)文字色
 };
 
   </script>

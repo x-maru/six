@@ -80,6 +80,18 @@ try{
 }catch(_){ setTimeout(applyStaticEditorSizeAndWindow, 300); }
 function updateModifiedFlag(){
   window.modified = (modifiedCount > 0);
+  try{
+    if (typeof Buffers==='object' && Buffers.current>=0){
+      var b=Buffers.list[Buffers.current];
+      if (b){
+        // 内容が baseline と一致していれば強制 0（他経路で誤インクリメントされても整合性回復）
+        try{ if (typeof b.baselineText==='string' && document.getElementById('editor') && document.getElementById('editor').value === b.baselineText){ modifiedCount = 0; } }catch(_){ }
+        b.modifiedCount = modifiedCount|0;
+      }
+    }
+  }catch(_){ }
+  // アクティブタブの * 表示を即時更新
+  try{ if (typeof updateTabBar==='function') updateTabBar(); }catch(_){ }
 }
 function setBaseline(text){
   baselineText = text;
@@ -570,6 +582,11 @@ function bufCaptureFromEditor(){
   var eLast= (typeof window._lastSelEnd  ==='number') ? window._lastSelEnd   : null;
   var pLast= (typeof window._lastPos     ==='number') ? window._lastPos      : null;
   b.text = ed.value;
+  var __resetMod = false;
+  // 誤検知対策: baseline と完全一致なら modifiedCount を 0 に戻す
+  try{
+    if (b && typeof b.baselineText === 'string' && ed.value === b.baselineText && modifiedCount!==0){ modifiedCount = 0; __resetMod = true; }
+  }catch(_){ }
   var Lv = b.text.length|0;
   var s = (sDom!=null)?sDom : (sIE!=null)?sIE : (sLast!=null)?sLast : 0;
   var e = (eDom!=null)?eDom : (eIE!=null)?eIE : (eLast!=null)?eLast : s;
@@ -579,15 +596,31 @@ function bufCaptureFromEditor(){
   if (p<0) p=0; if (p>Lv) p=Lv; b.pos = p|0;
   b.scrollTop = ed.scrollTop|0;
   b.modifiedCount = modifiedCount|0;
+  if (__resetMod){
+    // タブの * を即時消すため再描画
+    try{ if (typeof updateTabBar==='function') updateTabBar(); }catch(_){ }
+  }
   b.baselineText  = baselineText||'';
   b.undoStack = (undoStack||[]).slice(0);
   b.redoStack = (redoStack||[]).slice(0);
   b.insertSessionActive = !!insertSessionActive;
+  try{ b.mode = mode; }catch(_){ }
   b.path = window._currentFile||b.path||'';
 }
 function bufApplyToEditor(idx){
   var ed=document.getElementById('editor'); if(!ed) return; var b=Buffers.list[idx]||{};
   ed.value = String(b.text||'');
+  // プレースホルダ管理: 実ファイル（path あり）では消す。無名で空のときのみ元の placeholder を表示
+  try{
+    if (typeof window.__ORIG_PLACEHOLDER === 'undefined'){
+      window.__ORIG_PLACEHOLDER = ed.getAttribute('placeholder')||'';
+    }
+    if (b.path){ // 実ファイル
+      if (ed.getAttribute('placeholder')) ed.setAttribute('placeholder','');
+    }else{
+      if ((b.text||'').length===0 && window.__ORIG_PLACEHOLDER){ ed.setAttribute('placeholder', window.__ORIG_PLACEHOLDER); }
+    }
+  }catch(_){ }
   window._currentFile = b.path||'';
   var L = ed.value.length|0;
   var caret = (typeof b.pos==='number') ? (b.pos|0)
@@ -605,6 +638,8 @@ function bufApplyToEditor(idx){
   undoStack = (b.undoStack||[]).slice(0);
   redoStack = (b.redoStack||[]).slice(0);
   insertSessionActive = !!b.insertSessionActive;
+  // モード復元（存在すれば）
+  if (b.mode){ try{ mode = b.mode; document.getElementById('mode').innerText='['+mode+']'; }catch(_){ } }
   // カーソル/選択の復元
   try{ ed.focus(); }catch(_){ }
   if (s!==e){ setSelection(ed, s, e); } else { setCaret(ed, s); }
@@ -654,10 +689,12 @@ function reapplyCaretDeferred(ss, ee, cp){
 }
 function bufCreate(opts){
   var b={ id:Buffers.nextId++, path:(opts&&opts.path)||'', text:(opts&&typeof opts.text==='string')?opts.text:'', pos:0, scrollTop:0,
-    modifiedCount:0, baselineText:(opts&&opts.text)||'', undoStack:[], redoStack:[], insertSessionActive:false };
+    modifiedCount:0, baselineText:(opts&&opts.text)||'', undoStack:[], redoStack:[], insertSessionActive:false, mode: MODE_NORMAL };
   Buffers.list.push(b);
   var __idx = Buffers.list.length-1;
   try{ if (opts && opts.dispName){ Buffers.list[__idx].dispName = String(opts.dispName); } }catch(_){ }
+  // タブバー更新（遅延で安全に）
+  try{ setTimeout(function(){ if (typeof updateTabBar==='function') updateTabBar(); },0); }catch(_){ }
   return __idx;
 }
 function bufSwitchToIndex(newIdx){
@@ -669,6 +706,8 @@ function bufSwitchToIndex(newIdx){
       var __shown  = !!(__cmd && (__cmd.style.display==='inline-block' || __cmd.style.display==='block'));
       var __active = (document.activeElement === __ed);
       if (__ed && __active && !__shown){
+        // モード保存
+        try{ var __bSave = Buffers.list[Buffers.current]; if(__bSave) __bSave.mode = mode; }catch(_){ }
         try{
           var __bcur=(typeof Buffers==='object'&&Buffers.current>=0)?Buffers.list[Buffers.current]:null;
           var __p=(typeof window._lastPos==='number')?window._lastPos:(__bcur&&typeof __bcur.pos==='number'?__bcur.pos:null);
@@ -709,6 +748,8 @@ function bufSwitchToIndex(newIdx){
     })(Buffers.list[newIdx]||{});
   }catch(_){ }
   try{ showMsg('Buffer '+Buffers.list[newIdx].id+': '+_bufMakeName(Buffers.list[newIdx].path), 900); }catch(_){ }
+  // スイッチ後タブバー再描画
+  try{ if (typeof updateTabBar==='function') updateTabBar(); }catch(_){ }
 }
 function bufListString(){
   var out=[],i; for(i=0;i<Buffers.list.length;i++){
@@ -742,17 +783,178 @@ function bufOpenFile(path, forceReload){
         bcur.undoStack = []; bcur.redoStack = []; bcur.insertSessionActive=false; bcur.pos=0; bcur.scrollTop=0;
         bufApplyToEditor(Buffers.current);
         try{ showMsg('Buffer '+bcur.id+': '+_bufMakeName(bcur.path), 900); }catch(_){ }
+        try{ if (typeof updateTabBar==='function') updateTabBar(); }catch(_){ }
         return;
       }
     }
     // otherwise create a new buffer
     var newIdx=bufCreate({ path:path, text:text }); bufSwitchToIndex(newIdx);
+    try{ if (typeof updateTabBar==='function') updateTabBar(); }catch(_){ }
   }catch(e){ try{ showMsg('Open failed',1500); }catch(_){ } }
 }
+/* === Tab Bar Implementation (HTML: #tabbar / #tabsWrap / #tabs) === */
+// 依存: Buffers, modifiedCount, baselineText, updateStatus など
+// 方針: 各バッファを .tab 要素として再生成（再利用より単純）。active は .active、未保存は .modified。
+// Active タブのみフルパス、他は basename。overflow は #tabs の left シフトで実現。
+function _tabBarState(){
+  if (!window._tabBar) window._tabBar = { offset:0 }; // offset: 先頭に隠れているタブ数
+  return window._tabBar;
+}
+function _tabMakeHTML(b, idx){
+  var base = _bufMakeName(b.path||'');
+  var full = b.path || base || '[No Name]';
+  var active = (idx === Buffers.current);
+  var cls = 'tab';
+  if (active) cls += ' active';
+  if ((b.modifiedCount|0)>0) cls += ' modified';
+  var label = active ? full : base;
+  // 短い場合はセンタリング用クラス付与（しきい値: 12 文字未満）
+  if (label.length < 12) cls += ' short';
+  // 1〜20 の id に丸数字を付与
+  function _circled(n){ return (n>=1 && n<=20) ? String.fromCharCode(0x2460 + (n-1)) : ''; }
+  var circ = _circled(b.id|0);
+  if (circ){ label = '<span class="tab-num" title="Buffer '+b.id+'">'+circ+'</span>'+label; }
+  // title には常にフルパス
+  var styleAttr='';
+  try{
+    if (window.THEME){
+      if (active){
+        if (THEME.tabActiveBg) styleAttr += 'background:'+THEME.tabActiveBg+';';
+        if (THEME.tabActiveText) styleAttr += 'color:'+THEME.tabActiveText+';';
+      }else{
+        if (THEME.tabInactiveBg) styleAttr += 'background:'+THEME.tabInactiveBg+';';
+        if (THEME.tabInactiveText) styleAttr += 'color:'+THEME.tabInactiveText+';';
+      }
+    }
+  }catch(_){ }
+  if (styleAttr) styleAttr = ' style="'+styleAttr+'"';
+  return '<div class="'+cls+'"'+styleAttr+' data-idx="'+idx+'" title="'+full.replace(/"/g,'&quot;')+'" onclick="try{switchTabClick(event);}catch(_){ }">'+label+'</div>';
+}
+function updateTabBar(){
+  var wrap = document.getElementById('tabs');
+  if (!wrap) return;
+  // THEME にタブ配色があれば初回適用（毎回上書きは軽微なので簡易）
+  try{
+    if (window.THEME){
+      var tb = document.getElementById('tabbar');
+      if (tb && THEME.tabBarBg) tb.style.background = THEME.tabBarBg;
+      var btnL = document.getElementById('tabScrollLeft');
+      var btnR = document.getElementById('tabScrollRight');
+      function _applyBtnTheme(btn, disabled){
+        if(!btn) return; try{
+          if (disabled && THEME.tabButtonDisabledBg){
+            btn.style.background = THEME.tabButtonDisabledBg; // ensure opaque override
+            btn.style.filter = '';
+            btn.style.color = THEME.tabButtonDisabledText || THEME.tabButtonText || '';
+          }else{
+            if (THEME.tabButtonBg) btn.style.background = THEME.tabButtonBg;
+            if (THEME.tabButtonText) btn.style.color = THEME.tabButtonText;
+            btn.style.filter = '';
+          }
+        }catch(_){ }
+      }
+      _applyBtnTheme(btnL, btnL?btnL.disabled:false);
+      _applyBtnTheme(btnR, btnR?btnR.disabled:false);
+    }
+  }catch(_){ }
+  // Buffers 無ければ初期バッファ確保
+  try{ if (typeof bufEnsureInitial==='function') bufEnsureInitial(); }catch(_){ }
+  var html=[];
+  for (var i=0;i<Buffers.list.length;i++){ html.push(_tabMakeHTML(Buffers.list[i], i)); }
+  wrap.innerHTML = html.join('');
+  // offset 適用
+  adjustTabScrollButtons();
+}
+function switchTabClick(ev){
+  try{
+    var el = ev.currentTarget || ev.srcElement; if(!el) return;
+    var idx = parseInt(el.getAttribute('data-idx'),10); if (isNaN(idx)) return;
+    bufSwitchToIndex(idx);
+  }catch(_){ }
+}
+function adjustTabScrollButtons(){
+  var wrapOuter = document.getElementById('tabsWrap');
+  var inner = document.getElementById('tabs');
+  var btnL = document.getElementById('tabScrollLeft');
+  var btnR = document.getElementById('tabScrollRight');
+  if(!wrapOuter||!inner){ if(btnL) btnL.disabled=true; if(btnR) btnR.disabled=true; return; }
+  var st = _tabBarState();
+  // タブ幅測定
+  var children = inner.children; var widths=[]; var total=0;
+  for (var i=0;i<children.length;i++){ var w = children[i].offsetWidth||0; widths.push(w); total += w; }
+  var avail = wrapOuter.clientWidth||0;
+  // 最大 offset を計算: offset=i のとき i 以降がちょうど収まる最小 i
+  var maxOffset = 0;
+  if (total > avail){
+    var prefix = 0;
+    for (var i=0;i<widths.length;i++){
+      var remaining = total - prefix; // i から終端まで
+      if (remaining <= avail){ maxOffset = i; break; }
+      prefix += widths[i];
+      if (i === widths.length - 1) maxOffset = i; // 念のため
+    }
+  }else{
+    maxOffset = 0; // すべて表示可能
+  }
+  if (st.offset < 0) st.offset = 0;
+  if (st.offset > maxOffset) st.offset = maxOffset;
+  var hiddenLeft = (st.offset > 0);
+  var hiddenRight = (st.offset < maxOffset);
+  // シフト px
+  var shift = 0; for (var k=0;k<st.offset;k++){ shift += widths[k]||0; }
+  inner.style.left = (-shift)+'px';
+  if (btnL) btnL.disabled = !hiddenLeft;
+  if (btnR) btnR.disabled = !hiddenRight;
+  // ボタン色再適用（disabled 変化時）
+  try{
+    if (window.THEME){
+      function _applyBtnTheme(btn, disabled){
+        if(!btn) return; try{
+          if (disabled && THEME.tabButtonDisabledBg){
+            btn.style.background = THEME.tabButtonDisabledBg; // ensure opaque override
+            btn.style.filter = '';
+            btn.style.color = THEME.tabButtonDisabledText || THEME.tabButtonText || '';
+          }else{
+            if (THEME.tabButtonBg) btn.style.background = THEME.tabButtonBg;
+            if (THEME.tabButtonText) btn.style.color = THEME.tabButtonText;
+            btn.style.filter = '';
+          }
+        }catch(_){ }
+      }
+      _applyBtnTheme(btnL, btnL?btnL.disabled:false);
+      _applyBtnTheme(btnR, btnR?btnR.disabled:false);
+    }
+  }catch(_){ }
+}
+function scrollTabBar(dir){
+  var st=_tabBarState();
+  var inner=document.getElementById('tabs');
+  if(!inner) return;
+  // dir: -1=left, +1=right
+  var wrapOuter=document.getElementById('tabsWrap'); if(!wrapOuter) return;
+  var children=inner.children; if(!children||!children.length) return;
+  // 幅配列・最大 offset 再計算（adjust と同一ロジックを軽量複製）
+  var widths=[]; var total=0; for(var i=0;i<children.length;i++){ var w=children[i].offsetWidth||0; widths.push(w); total+=w; }
+  var avail = wrapOuter.clientWidth||0;
+  var maxOffset=0;
+  if (total>avail){
+    var prefix=0; for(var j=0;j<widths.length;j++){ var remaining=total-prefix; if(remaining<=avail){ maxOffset=j; break; } prefix += widths[j]; if(j===widths.length-1) maxOffset=j; }
+  }
+  if (dir>0){ if (st.offset < maxOffset) st.offset++; }
+  else if (dir<0){ if (st.offset>0) st.offset--; }
+  adjustTabScrollButtons(); // クランプとボタン状態更新
+}
+// 起動後初期反映（遅延）
+try{ setTimeout(function(){ if (typeof updateTabBar==='function') updateTabBar(); }, 120); }catch(_){ }
+// リサイズ時に再評価（幅変化）
+try{ if (window.addEventListener) window.addEventListener('resize', function(){ try{ adjustTabScrollButtons(); }catch(_){ } }, false); }catch(_){ }
+
 function setMode(newMode, editor){
   var prev = mode;
   mode=newMode;
   document.getElementById('mode').innerText='['+mode+']';
+  // 現在バッファへも保存（タブ切替用）
+  try{ if (typeof Buffers==='object' && Buffers.current>=0){ var __b=Buffers.list[Buffers.current]; if(__b) __b.mode = mode; } }catch(_){ }
   // ネイティブキャレット隠蔽クラス再評価（INSERTでのみ隠す方針）
   try{ if (typeof window._reEvalHideNativeCaret==='function') window._reEvalHideNativeCaret(); }catch(_){ }
   if(mode===MODE_INSERT){
@@ -908,6 +1110,8 @@ function updateStatus(editor){
   document.getElementById('filename').innerText = bprefix + filename;
   document.getElementById('modmark').innerText = modmark;
   document.getElementById('mode').innerText = '['+mode+']';
+  // タブ側も最新 modifiedCount / active を再描画（軽量化のため updateTabBar 呼び）
+  try{ if (typeof updateTabBar==='function') setTimeout(updateTabBar,0); }catch(_){ }
   // __bufsync__: updateStatus 実行ごとに現在バッファへカーソル/選択/スクロールを同期
   try{
     var ed2 = editor || document.getElementById('editor');
@@ -1263,14 +1467,26 @@ function updateGutter() {
       var bg = 'background:linear-gradient(to bottom,'+sCol+','+eCol+');';
   var activeColor = window.THEME.gutterActiveTextColor || 'red';
   var extra = useActive ? 'color:'+activeColor+';' : '';
-      html.push('<div class="ln" style="height:'+lhExact+'px;line-height:'+lhExact+'px;'+bg+extra+'padding-right:0.45rem;">' + ln + '</div>');
+    html.push('<div class="ln" style="height:'+lhExact+'px;line-height:'+lhExact+'px;'+bg+extra+'padding-right:0.45rem;">' + ln + '</div>');
   }
   gutter.innerHTML = html.join('');
+  // オプション: デバッグフラグ _dbgLineOutline が true のとき 5行ごとに枠線を付けて現象切り分け
+  try{
+    if(window._dbgLineOutline){
+      var nodes = gutter.getElementsByClassName('ln');
+      for(var di=0;di<nodes.length;di++){
+        var num = startLine + 1 + di;
+        if(num % 5 === 0){ nodes[di].style.outline='1px solid #111'; }
+      }
+    }
+  }catch(_){ }
   // スクロール端数のみ逆方向に移動（padding の端数も含め同期させる）
   var offset = -(editor.scrollTop % lhExact);
   var padFrac = padTop - (padTop|0);
   var transOffset = offset + padFrac;
-  gutter.style.transform = 'translateY(' + (transOffset) + 'px)';
+  // サブピクセル描画で稀に 1px の“黒い縁”が現れる問題への対策: 整数へスナップ（_noSnapGutter=true で無効化）
+  try{ if(!window._noSnapGutter){ transOffset = Math.round(transOffset); } }catch(_){ }
+  gutter.style.transform = 'translateY(' + transOffset + 'px)';
   // ガター EOF 塗り潰し: 最終行下端からシームレスに開始（ギャップ/被り調整）
   try {
     if (endLine === total) {
@@ -1348,7 +1564,7 @@ function updateGutter() {
     }catch(_){ }
     stripe.innerHTML = frag.join('');
   // offset は scrollTop % 行高 由来。padding の端数分も考慮して揺れを低減
-  try{ stripe.style.transform = 'translateY('+transOffset+'px)'; }catch(_){ }
+  try{ var _toff = transOffset; if(!window._noSnapGutter){ _toff = Math.round(_toff); } stripe.style.transform = 'translateY('+_toff+'px)'; }catch(_){ }
   }
 }
 // ====== scrolloff（表示端からの余白スクロール） ======
@@ -3166,6 +3382,42 @@ function ensureWindowResizer(){
   _safeAdd(cmd, 'keydown', function(e){
     var k = e.key;
     var kc = e.keyCode;
+    // 早期: :b{番号}（スペース無し）即時切替 (window.ENABLE_BIMMEDIATE)
+    try{
+      if (window.ENABLE_BIMMEDIATE){
+        var preElBI = document.getElementById('cmdprefix');
+        var prefBI = preElBI ? (preElBI.innerText||preElBI.textContent||'') : '';
+        if (prefBI === ':'){
+          var valBI = cmd.value; // 先頭に : は含まれない状態
+          // 入力直前の状態を参照したいので keydown で扱う: ここではまだ今回キーは反映されていない
+          // 1文字数字押下で発火させたいので、今回押したキーを仮に連結して判定
+          var nextVal = valBI;
+          if (/^[0-9]$/.test(k)){ nextVal = valBI + k; }
+          // パターン1: b<digit>
+          var m1 = nextVal.match(/^b(\d+)$/i);
+          if (m1){
+            var numStr = m1[1];
+            var needSecond = (Buffers.list && Buffers.list.length>=10);
+            // 10以上あるとき 1桁だけでは確定しない
+            if (!needSecond || numStr.length>=2){
+              var id = parseInt(numStr,10);
+              // Enter なしで即実行
+              var idx = -1; // id は buffer.id（連番）
+              for(var qi=0; qi<Buffers.list.length; qi++){ if (Buffers.list[qi].id === id){ idx=qi; break; } }
+              if (idx>=0){
+                bufSwitchToIndex(idx);
+                // コマンドバーを閉じる（既存 runCommand 経由しない）
+                hideMsg();
+                closeCmdBar();
+                e.preventDefault(); e.stopPropagation();
+                return;
+              }
+            }
+          }
+          // パターン2: b<digit><digit> 途中で Backspace などは通常挙動
+        }
+      }
+    }catch(_){ }
     // ↑↓ でコマンド履歴（: のみ）巡回。補完アクティブ時は Shift+↑/Shift+↓ で履歴、非アクティブ時は通常の ↑/↓。
     if ((k==='ArrowUp' || k==='Up' || k==='ArrowDown' || k==='Down') && (!cmdCompl.active || e.shiftKey)){
       var preElH = document.getElementById('cmdprefix');

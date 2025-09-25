@@ -10,7 +10,33 @@
     font-family: "Cascadia Code", "Consolas", "游ゴシック Light", "Yu Gothic", "Meiryo", "MS Gothic", monospace;
     overflow: hidden; /* 外側の縦スクロールを抑止 */
   }
-  #pane { display: flex; height: 100%; overflow: visible; }
+  #pane { display: flex; height: 100%; overflow: hidden; flex-direction: column; }
+  /* 編集領域（ガター+エディタ+オーバーレイ） */
+  #editArea { position: relative; flex: 1 1 auto; display: flex; align-items: stretch; overflow: hidden; }
+  #editArea #gutter { flex: 0 0 auto; }
+  #editArea #editor { flex: 1 1 auto; }
+  #editArea #edstripe { position:absolute; left:0; right:0; top:0; bottom:0; }
+  /* タブバー */
+  #tabbar { position: relative; flex: 0 0 auto; display: flex; align-items: stretch; height: 1.55rem; background: #27282b; border-bottom: 1px solid #3b3d42; font-size: 0.72rem; user-select: none; z-index: 10; }
+  /* ボタン色は THEME 適用時に JS が上書き。z-index を上げて下地とブレンドしないようにする */
+  #tabbar button { background: #2e3033; color: #ccc; border: 0; padding: 0 0.4rem; cursor: pointer; font-size: 0.72rem; position: relative; z-index: 12; }
+  #tabsWrap { position: relative; flex: 1 1 auto; overflow: hidden; z-index: 11; }
+  /* disabled 時に opacity で透過させると背景色がブレンドしてテーマ色が濁るため透過を撤廃 */
+  #tabbar button:disabled { cursor: default; }
+  #tabsWrap { position: relative; flex: 1 1 auto; overflow: hidden; }
+  #tabs { position: absolute; left: 0; top: 0; height: 100%; display: flex; transition: left 0.12s; }
+  .tab { flex: 0 0 auto; padding: 0 0.7rem; display: flex; align-items: center; border-right: 1px solid #3b3d42; 
+    min-width: 22ch; /* _six.run-command.js 程度を確保 */
+    max-width: 60rem; /* 長い WSL フルパスも収めたい */
+    box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #aaa; justify-content:flex-start; }
+  .tab { cursor: pointer; }
+  .tab .tab-num { display:inline-block; margin-right:0.35rem; opacity:0.9; font-size:200%; line-height:1; position:relative; top:-0.15rem; }
+  .tab.short { justify-content:center; }
+  /* active/inactive の背景/文字色も THEME 適用時に内連 style で上書き */
+  .tab.active { background: #313336; color: #ffd; font-weight: 600; }
+  .tab.modified::after { content: '*'; color: #e66; margin-left: 0.22rem; }
+  .tab:hover { background: #3a3c40; color: #fff; }
+  .tab.fullpath { font-style: italic; }
   /* 本文ストライプ（偶数行デバッグ用オーバーレイ） */
   #edstripe {
     position: absolute; top: 0; bottom: 0; left: 0; right: 0;
@@ -19,7 +45,7 @@
   }
   /* 行番号ガター */
   #gutter {
-    position: static;
+    position: relative;
     width: 4.0rem; background: #1b1c1f; border-right: 1px solid #3b3d42;
     color: #c0c0c0; text-align: right; /* padding-right を各行要素に移動 */ box-sizing: border-box;
     font-size: 1.0rem; line-height: 1.6; pointer-events: none; overflow: hidden;
