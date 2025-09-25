@@ -111,11 +111,98 @@ function anyBufferModified(){
   return false;
 }
 
-// HTA の onbeforeunload ダイアログは UX が悪いため使用しない（:q のみで警告）
-// X/Alt+F4 を :q 相当として扱い、未保存バッファがあれば閉じずメッセージ表示。
-// 既存のブラウザ標準ダイアログを避けるため return 値は返さず、独自メッセージだけ表示して false を返す。
-// NOTE: HTA の onbeforeunload はダイアログ抑止が困難で UX 悪化したため無効化（X は OS 標準で閉じる）。
-try{ window.onbeforeunload = null; }catch(_){ }
+// --- onbeforeunload 救済バックアップ機構 ---------------------------------
+// 要件: X ボタン押下（onbeforeunload 発火）時、未保存バッファを無確認で
+// 各オリジナルパスに .bak1, .bak2 ... を付与したファイルへ自動保存する。
+// ・元ファイルと同じディレクトリに <元ファイル名>.bakN 形式で作成
+// ・既存があれば N++
+// ・無名（path 未設定）のバッファはスキップ（仕様簡略化）
+// ・処理は一度だけ（連続発火防止）
+// ・ユーザ操作をブロックする onbeforeunload ダイアログ表示中に完了させる前提
+// ・戻り値は設定しない（可能であればダイアログ抑制／最小化）
+// 注意: HTA/IE の仕様上ダイアログ完全抑止はできない場合あり。
+function autoBackupDirtyBuffersOnClose(){
+  var backed = 0, skipped = 0;
+  var backedPaths = [];
+  try{
+    if (!Buffers || !Buffers.list) return 0;
+    var fso;
+    try{ fso = new ActiveXObject('Scripting.FileSystemObject'); }catch(_){ fso = null; }
+    for (var i=0;i<Buffers.list.length;i++){
+      try{
+        var b = Buffers.list[i]; if(!b) continue;
+        if (!b.path){ skipped++; continue; } // 無名は対象外
+        var dirty = (b.modifiedCount|0)>0;
+        if (!dirty && typeof b.text==='string' && typeof b.baselineText==='string' && b.text !== b.baselineText) dirty = true;
+        if (!dirty) continue;
+        var basePath = String(b.path);
+        var n = 1, cand = '';
+        while(true){
+          cand = basePath + '.bak' + n;
+            if (!fso){ break; }
+          var exists = false; try{ exists = fso.FileExists(cand); }catch(__){ exists = false; }
+          if (!exists) break;
+          n++; if (n>999){ // フォールバック: タイムスタンプ
+            cand = basePath + '.bak' + (new Date().getTime());
+            break;
+          }
+        }
+        // 書き込み
+        try{
+          var t = (typeof b.text==='string') ? b.text : '';
+          // 念のため現在表示中バッファなら editor から再取得（テキスト同期事故対策）
+          if (Buffers.current === i){
+            try{ var ed0=document.getElementById('editor'); if (ed0 && typeof ed0.value==='string') t = ed0.value; }catch(__){}
+          }
+          t = String(t).replace(/\r\n?/g,'\n');
+          var stm = new ActiveXObject('ADODB.Stream');
+          stm.Type = 2; stm.Charset = 'utf-8'; stm.Open();
+          stm.WriteText(t);
+          stm.Position = 0;
+          // adSaveCreateOverWrite = 2
+          stm.SaveToFile(cand, 2);
+          try{ stm.Close(); }catch(__){}
+          backed++;
+          try{ backedPaths.push(cand); }catch(__){}
+        }catch(__){ skipped++; }
+      }catch(__){ skipped++; }
+    }
+  }catch(_){ }
+  // 直近バックアップリストをグローバルに保持（onbeforeunload ダイアログ用）
+  try{ window._lastAutoBackupPaths = backedPaths; }catch(_){ }
+  // メッセージ表示は onbeforeunload 側でまとめて行うためここでは行わない
+  return backed; // バックアップ成功件数
+}
+try{
+  window.onbeforeunload = function(ev){
+    try{
+      if (window._autoBakDuringClose) return; // ガード
+      if (typeof anyBufferModified==='function' && anyBufferModified()){
+        window._autoBakDuringClose = true;
+        var backedCount = 0;
+        try{ backedCount = autoBackupDirtyBuffersOnClose(); }catch(__){}
+        // ガード解除は遅延（複数回発火する環境の場合）
+        try{ setTimeout(function(){ window._autoBakDuringClose=false; }, 200); }catch(__){}
+        if (backedCount>0){
+          var paths = [];
+          try{ if (window._lastAutoBackupPaths && window._lastAutoBackupPaths.slice) paths = window._lastAutoBackupPaths.slice(0); }catch(__){}
+          var showLimit = 8; // 表示上の最大列挙数
+          var head = paths.slice(0, showLimit);
+          var more = (paths.length > head.length) ? ('\n... (' + (paths.length - head.length) + ' more)') : '';
+          var listPart = head.length ? ('\n' + head.join('\n') + more) : '';
+          var msg = '\n\n緊急退避で未保存バッファを*.bakNで別名保存しました。\n' + listPart + '\n\n\n※制限事項）↓ OK/キャンセルどちらでも終了します';
+          // 任意: 画面下にも短時間通知
+          try{ showMsgAuto(msg, 2600); }catch(__){}
+          try{ if (ev) ev.returnValue = msg; }catch(__){}
+          return msg; // IE/HTA: システムダイアログへ
+        }
+      }
+    }catch(__){ }
+    return; // 変更なし → ダイアログ無し（未保存なし）
+  };
+}catch(_){ }
+// -------------------------------------------------------------------------
+
 function setBaseline(text){
   baselineText = text;
   modifiedCount = 0;
@@ -1858,14 +1945,10 @@ function runCommand(s){
         }
         var m = matches[i]; var s=m.s+delta, e=m.e+delta; if(s<0) s=0; if(e>ed.value.length) e=ed.value.length;
         setSelection(ed, s, e);
-        try{ ed.focus(); }catch(_){}
-        try{ window._suppressSelLen=true; }catch(_){ }
+        try{ ed.focus(); }catch(_){ }
         updateStatus(ed); ensureScrolloff(ed); updateGutter();
         // この段階で毎回オーバーレイを再描画（念のため）
         try{ if(window._lastVisualSel && typeof renderVisSelOverlay==='function'){ var vs2=window._lastVisualSel; renderVisSelOverlay(vs2.s|0, (vs2.e|0)+delta); } }catch(_){ }
-  // 初回でも確実に描画されるよう選択を遅延再適用（キャンセル指定時は呼ばない）
-  try{ if (!window._cancelReapplySel && typeof reapplyCaretDeferred==='function') reapplyCaretDeferred(s,e,e); }catch(_){ }
-  setTimeout(function(){ try{ if (!window._cancelReapplySel && typeof reapplyCaretDeferred==='function') reapplyCaretDeferred(s,e,e); }catch(_){} }, 30);
         if(applyAll){
           var r=_applyOne(ed, rangeObj, m, re, repStr, '', delta);
           delta+=r.delta; i++;
@@ -1878,10 +1961,8 @@ function runCommand(s){
           }catch(_){ }
           setTimeout(step,0); return;
         }
-        setTimeout(function(){
-          var remain = (matches.length - i);
-          _showPrompt('replace? (aで残り'+remain+'件)');
-        }, 0);
+        var remain = (matches.length - i);
+        _showPrompt('replace? (aで残り'+remain+'件)');
       }
       function onKey(ev){
         if(done) return;
