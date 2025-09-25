@@ -1464,6 +1464,7 @@ function openCmdBar(){
   pre.innerText = ':';              // ← 追加: 常にコロンに戻す
   inp.style.display = 'inline-block';
   inp.value='';
+  try{ window._cmdHistIndex = null; }catch(_){ }
   inp.focus();
 }
 // コマンドバーを閉じる
@@ -1548,6 +1549,18 @@ function bindCmdlineEsc(){
 }
 // Ex コマンド実行本体
 function runCommand(s){
+  // 先頭が : の場合のみ履歴に登録（検索 /? は別管理のため除外）
+  try{
+    if (s && s.charAt(0) === ':' && s.length > 1){
+      if (!window._cmdHistory) window._cmdHistory = [];
+      var body = s.slice(1); // ':' を除いた部分
+      var last = window._cmdHistory.length ? window._cmdHistory[window._cmdHistory.length-1] : null;
+      if (body && body !== last){ window._cmdHistory.push(body); }
+      // 上限（任意, 300 件程度）
+      if (window._cmdHistory.length > 300) window._cmdHistory.splice(0, window._cmdHistory.length-300);
+      window._cmdHistIndex = null; // 実行後はリセット
+    }
+  }catch(_){ }
   // 置換 (:s) 専用のローカル IIFE（ヘルパ群と確認フローを内包）
   (function(){
     function _finishPrompt(){ try{ hideMsg(); }catch(_){ } }
@@ -3141,6 +3154,39 @@ function ensureWindowResizer(){
   _safeAdd(cmd, 'keydown', function(e){
     var k = e.key;
     var kc = e.keyCode;
+    // ↑↓ でコマンド履歴（: のみ）巡回。補完アクティブ時は Shift+↑/Shift+↓ で履歴、非アクティブ時は通常の ↑/↓。
+    if ((k==='ArrowUp' || k==='Up' || k==='ArrowDown' || k==='Down') && (!cmdCompl.active || e.shiftKey)){
+      var preElH = document.getElementById('cmdprefix');
+      var prefH = preElH ? (preElH.innerText || preElH.textContent || '') : '';
+      if (prefH === ':'){
+        try{
+          if (!window._cmdHistory) window._cmdHistory = [];
+          var hist = window._cmdHistory;
+          if (!hist.length){ /* 何もしない */ }
+          else {
+            if (window._cmdHistIndex == null){
+              // 初回に現在入力中を一時保存（必要なら）: 今回は未採用（戻る操作で空値復元したい場合は保持可）
+              window._cmdHistIndex = hist.length; // 末尾 “1つ後ろ” を指す
+            }
+            if (k==='ArrowUp' || k==='Up'){
+              window._cmdHistIndex--; if (window._cmdHistIndex < 0) window._cmdHistIndex = 0;
+            } else {
+              window._cmdHistIndex++; if (window._cmdHistIndex > hist.length) window._cmdHistIndex = hist.length;
+            }
+            if (window._cmdHistIndex >= 0 && window._cmdHistIndex < hist.length){
+              cmd.value = hist[window._cmdHistIndex];
+              // 末尾へキャレット
+              try{ cmd.setSelectionRange(cmd.value.length, cmd.value.length); }catch(_){ }
+            } else if (window._cmdHistIndex === hist.length){
+              // 履歴の“最後の次”= 新規入力空
+              cmd.value = '';
+            }
+          }
+        }catch(_){ }
+        e.preventDefault(); e.stopPropagation();
+        return;
+      }
+    }
     // Enter / Esc は先に処理
     if (kc === 27 || k === 'Escape' || k === 'Esc'){
       // IME 中の ESC は閉じずに IME へ
