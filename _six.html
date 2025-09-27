@@ -110,6 +110,7 @@
         <li><kbd>:w</kbd> / <kbd>:w</kbd> path … UTF-8（LF）で保存。保存後は編集フラグクリア＆Undo基点再構築</li>
         <li><kbd>:set number</kbd> / <kbd>:set nonumber</kbd> … 行番号表示の切替</li>
         <li><kbd>:set clipboard=os</kbd> / <kbd>:set clipboard=internal</kbd> … クリップボード同期先</li>
+  <li><kbd>:set list</kbd> / <kbd>:set nolist</kbd> … 不可視表示 ON/OFF（TAB=▸、末尾空白=·、改行=↲; 改行は LF/CR/CRLF で色分け）</li>
         <li><kbd>:set scrolloff=数字</kbd> … 画面端からの余白行数（既定=99999）</li>
         <li><kbd>:123</kbd> … 指定行へジャンプ（先頭非空白）</li>
         <li><kbd>:u</kbd> / <kbd>:redo</kbd> … Undo / Redo</li>
@@ -162,7 +163,8 @@ var OPT = {
   number: true,          // 行番号
   fileformat: 'unix',    // v1は LF 固定 ('unix')。将来 'dos' なら CRLF 正規化へ
   clipboard: 'internal', // 'internal' or 'os'（y/d 実装時に反映）
-  scrolloff: 99999  // 既定の scrolloff
+  scrolloff: 99999, // 既定の scrolloff
+  list: true        // 既定で list ON（固定 listchars ）
 };
 var TEXTAREA_WIDTH = 110;
 var TEXTAREA_HEIGHT = 32;
@@ -194,8 +196,12 @@ var THEME = {
   ,tabInactiveText: 'rgb(127,127,127)'     // 非アクティブタブ文字色
   ,tabButtonBg: 'rgb(115,115,115)'         // スクロールボタン背景
   ,tabButtonText: 'rgb(115,221,229)'       // スクロールボタン文字色
-  ,tabButtonDisabledBg: 'rgb(243,251,243)'    // スクロールボタン(非活性)背景
-  ,tabButtonDisabledText: 'rgb(231,239,231)' // スクロールボタン(非活性)文字色
+  ,tabButtonDisabledBg: 'rgb(27,47,15)'    // スクロールボタン(非活性)背景
+  ,tabButtonDisabledText: 'rgb(31,51,19)' // スクロールボタン(非活性)文字色
+  ,listControlColor: 'rgb(128,210,255)' // list モード: 制御/可視化文字色 (タブ記号/末尾スペース)
+  ,newlineColorLF: 'rgb(192,223,255)'
+  ,newlineColorCR: 'rgb(255,0,0)'
+  ,newlineColorCRLF: 'rgb(0,255,0)'
 };
 
   </script>

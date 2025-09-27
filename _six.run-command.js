@@ -1899,6 +1899,84 @@ function runCommand(s){
   // 置換 (:s) 専用のローカル IIFE（ヘルパ群と確認フローを内包）
   (function(){
     function _finishPrompt(){ try{ hideMsg(); }catch(_){ } }
+    // :s 正規表現生成 (簡易版: /i フラグ, g は後段で re に付与, c/n はロジック側)
+    function _buildRegex(pat, flags){
+      try{
+        if(pat==='') pat='(?=.)'; // 空パターン防御（0幅無限ループ回避簡易）
+        var reFlags='';
+        if(/i/.test(flags) && !/I/.test(flags)) reFlags+='i'; // I は大小区別明示 (挙動は既定と同じ)
+        if(/g/.test(flags)) reFlags+='g';
+        // JS の正規表現特殊文字を自前エスケープしない（Vimとの互換より簡易優先）
+        return new RegExp(pat, reFlags);
+      }catch(_){ return /$a/; }
+    }
+    // 置換文字列準備: \n -> \n, \t -> tab, & / \0 -> 全体一致, \1..\9 -> capture
+    function _prepReplacement(rep){
+      if(rep==null) return '';
+      // 後で mid.replace(re1, repStr) で使うため、ここではプレースホルダを JS 形式に変換
+      // Vim の \n -> 改行を模倣
+      var out='';
+      for(var i=0;i<rep.length;i++){
+        var ch=rep.charAt(i);
+        if(ch==='\\' && i+1<rep.length){
+          var nx=rep.charAt(i+1);
+            if(nx==='n'){ out+='\n'; i++; continue; }
+            if(nx==='t'){ out+='\t'; i++; continue; }
+            if(nx==='0' || nx==='&'){ out+='$&'; i++; continue; }
+            if(nx>='1' && nx<='9'){ out+='$'+nx; i++; continue; }
+            // それ以外は次文字をそのまま
+            out+=nx; i++; continue;
+        }
+        out+=ch;
+      }
+      return out;
+    }
+    // 置換対象範囲を計算: sraw の先頭に % や '<,'> があるか、または VISUAL 選択保持がある場合。
+    // 戻り値: { start: number, end: number } （end は排他的）。失敗時は全体。
+    function _computeRange(editor, sraw){
+      try{
+        var v = editor.value || ''; var L = v.length;
+        var full = { start:0, end:L };
+        if(!sraw) return full;
+        // VISUAL 直後 (window._lastVisualSel) を優先
+        try{
+          if(window._lastVisualSel && typeof window._lastVisualSel.s === 'number' && typeof window._lastVisualSel.e === 'number'){
+            var vs = window._lastVisualSel; var s = Math.max(0, Math.min(L, vs.s|0)); var e = Math.max(0, Math.min(L, vs.e|0));
+            if(e < s){ var t=s; s=e; e=t; }
+            return { start:s, end:e };
+          }
+        }catch(_){ }
+        // % 指定 → 全体
+        if(/^:%?s/.test(sraw) || /^%s/.test(sraw)) return full;
+        // アドレス形式 (例 :1,10s / :.,$s など) は現状未対応 → 全体
+        return full;
+      }catch(_){ return { start:0, end:(editor && editor.value?editor.value.length:0) }; }
+    }
+    // 指定範囲内でのマッチ収集。flags に g が無い場合は最初の 1 件のみ。
+    // 返値: [{s:number,e:number,text:string} ...]
+    function _collectMatches(text, re, rangeObj, flags){
+      var out=[]; if(!text) return out; if(!rangeObj) rangeObj={start:0,end:text.length};
+      var s = rangeObj.start|0, e = rangeObj.end|0; if(s<0)s=0; if(e>text.length)e=text.length; if(e<s)e=s;
+      var sub = text.slice(s,e);
+      try{
+        if(!re.global){ // g 無しなら最初だけ
+          var m = re.exec(sub);
+          if(m){ out.push({ s: s + (m.index||0), e: s + (m.index + m[0].length), text:m[0] }); }
+        } else {
+          var m2; var lastLastIndex=0; re.lastIndex=0;
+          while((m2=re.exec(sub))){
+            var idx = (typeof m2.index==='number')?m2.index: (re.lastIndex - (m2[0]?m2[0].length:0));
+            out.push({ s: s + idx, e: s + idx + m2[0].length, text: m2[0] });
+            if(!m2[0]){ // 空マッチ無限ループ防止
+              if(re.lastIndex <= lastLastIndex){ re.lastIndex = lastLastIndex + 1; }
+              lastLastIndex = re.lastIndex;
+            }
+            if(!/g/.test(flags)) break; // 念のため flags に g 無しなら 1 件で終了
+          }
+        }
+      }catch(_){ }
+      return out;
+    }
     function _applyOne(editor, rangeObj, match, re, repStr, caseFlags, offsetDelta){
       var v=editor.value; var s=match.s+offsetDelta, e=match.e+offsetDelta; if(s<0) s=0; if(e>s && e<=v.length){
         var before=v.slice(0,s), mid=v.slice(s,e), after=v.slice(e);
@@ -2071,6 +2149,30 @@ function runCommand(s){
   (function(){ var _origFinish=_finishPrompt; _finishPrompt=function(){ try{ window.removeEventListener('keydown', onKey, true); }catch(_){ } try{ if (window.detachEvent) window.detachEvent('onkeydown', onKey); }catch(_){ } _origFinish(); }; })();
       step();
     }
+    // 簡易 substitute パーサ (先頭 s / s+% / '<,'> 等を除去後、最初のデリミタ文字で区切る)
+    function _parseSubst(raw){
+      try{
+        if(!raw) return null;
+        // 先頭の : と 範囲 % / '<,'> を除去
+        raw = raw.replace(/^:/,'').replace(/^%/,'').replace(/^'<,'>/,'');
+        if(!/^s\s*./.test(raw)) return null;
+        var delim = raw.charAt(raw.search(/s\s*/) + (raw.match(/s\s*/)||[''])[0].length) || '/';
+        // フォーマット: s<spaces><delim>pat<delim>rep<delim>flags
+        var i = raw.indexOf(delim, raw.indexOf('s'));
+        if(i<0) return null; i++; // pat 開始
+        var pat='', rep='', flags=''; var mode=0; // 0 pat,1 rep,2 flags
+        for(; i<raw.length; i++){
+          var ch=raw.charAt(i);
+          if(ch==='\\' && i+1<raw.length){
+            if(mode===0) pat+=raw.charAt(i+1); else if(mode===1) rep+=raw.charAt(i+1); else flags+=raw.charAt(i+1);
+            i++; continue;
+          }
+            if(mode<2 && ch===delim){ mode++; continue; }
+          if(mode===0) pat+=ch; else if(mode===1) rep+=ch; else flags+=ch;
+        }
+        return { pat: pat, rep: rep, flags: flags };
+      }catch(_){ return null; }
+    }
     function _runSubstitute(sraw){
       var ed=document.getElementById('editor'); if(!ed) return true;
       var parsed=_parseSubst(sraw.replace(/^%?(s)/,'$1'));
@@ -2120,7 +2222,8 @@ function runCommand(s){
       return true;
     }
     // マッチ: :s... / :%s... / s... / %s... / :'<,'>s... / '<,'>s...
-    if (/^:?[\t ]*(%|\'<,\'>)?s\s*./i.test(s)){
+  // substitute 検出: s の後に区切り（非英数字かつ非空白）が来るケースのみを許可（:set を誤判定しない）
+  if (/^:?[\t ]*(%|'<,'>)?s\s*[^A-Za-z0-9\s]/.test(s)){
       var raw = s.replace(/^:\s*/,'');
       // 事前に c-flag / VISUAL 範囲を検知してフラグを立て、closeCmdBar による VISUAL 消去を抑止
       try{
@@ -2148,6 +2251,17 @@ function runCommand(s){
     try{ if (typeof OPT!=='object') window.OPT = {}; }catch(_){ }
     OPT.scrolloff = n;
     try{ showMsg("scrolloff=" + n, 1200); }catch(_){ }
+    try{ closeCmdBar(); }catch(_){ }
+    return;
+  }
+  // :set list / :set nolist （IE11 固定幅前提）
+  // :set list / :set nolist 認識 (以前の no?list は nlist も許容し list を弾く不具合 → (?:no)?list に修正)
+  if (/^:?\s*set\s+(?:no)?list\s*$/i.test(s)){
+    var on = !/nolist/i.test(s);
+    try{ if(typeof OPT!=='object') window.OPT={}; }catch(_){ }
+    OPT.list = on;
+    try{ showMsg('list='+(on?'on':'off'), 900); }catch(_){ }
+    try{ if(on){ if(typeof _renderListLayer==='function') _renderListLayer(); } else { var ll=window._listLayer; if(ll) ll.style.display='none'; } }catch(_){ }
     try{ closeCmdBar(); }catch(_){ }
     return;
   }
@@ -2451,6 +2565,7 @@ function ensureWindowResizer(){
   editor.value =
     '# Vi-like Text Editor "six" v0.3.3 (paste+help)\n' +
     '行番号: :set number / :set nonumber（起動時は number=on）。wrap=off 前提。\n' +
+    '不可視: :set list / :set nolist  （list=ON で TAB=▸, 末尾空白=·, 改行=↲; 改行は種別で色分け）\n' +
     '移動: h j k l / ←↓↑→ / w b / ^（先頭非空白）/ 0 / $ / 段落 { }\n' +
     'モード: i → INSERT, v → VISUAL, Esc → NORMAL\n' +
     'ペースト: INSERTでCtrl+V/Shift+Ins/右クリック可（改行はLFに正規化）。NORMALでは不可。\n' +

@@ -1,5 +1,181 @@
 (function(){
-		// ====== Custom Caret (non-blinking, fixed half-width W box) ======
+	// ====== list (制御/不可視文字のオーバーレイ表示) ======
+	function ensureListLayer(){
+		if (window._listLayer) return window._listLayer;
+		var lyr=document.createElement('div');
+		lyr.id='list-layer';
+		lyr.style.position='fixed';
+		lyr.style.pointerEvents='none';
+		lyr.style.zIndex=40; // cmdbar(50) より下
+		lyr.style.whiteSpace='pre';
+		lyr.style.display='none';
+		document.body.appendChild(lyr);
+		// 直接スクロール/入力でも再描画（caret-layer 経由イベントが飛ばないケース対策）
+		try{
+			var ed=document.getElementById('editor');
+			if(ed && !ed._listBound){
+				var reb=function(){ try{ if(window.OPT && OPT.list) scheduleListLayerRender(false); }catch(_){ } };
+				if(ed.addEventListener){ ed.addEventListener('scroll', reb); ed.addEventListener('input', reb); ed.addEventListener('keyup', reb); ed.addEventListener('click', reb); }
+				else if(ed.attachEvent){ ed.attachEvent('onscroll', reb); ed.attachEvent('oninput', reb); ed.attachEvent('onkeyup', reb); ed.attachEvent('onclick', reb); }
+				ed._listBound=true;
+			}
+		}catch(_){ }
+		return (window._listLayer=lyr);
+	}
+
+	// 高頻度スクロール時は描画を遅延し直前の 1 回にまとめる (j 連打など)
+	var _listRenderTimer=null, _lastListRenderAt=0;
+	function scheduleListLayerRender(force){
+		if(force){ if(_listRenderTimer){ clearTimeout(_listRenderTimer); _listRenderTimer=null; } _renderListLayer(); return; }
+		var now=+new Date();
+		// 直近描画から一定時間(70ms)未満なら再スケジューリングのみ
+		var delay=70;
+		if(_listRenderTimer){ clearTimeout(_listRenderTimer); }
+		// 待機中は一旦非表示（スクロール中の残像を消す）
+		try{ if(window._listLayer) window._listLayer.style.display='none'; }catch(_){ }
+		_listRenderTimer=setTimeout(function(){ _listRenderTimer=null; _renderListLayer(); _lastListRenderAt=+new Date(); }, delay);
+	}
+	function _renderListLayer(){
+		try{
+			if(!window.OPT || !OPT.list){ var ll=window._listLayer; if(ll) ll.style.display='none'; return; }
+			var ed=document.getElementById('editor'); if(!ed) return;
+			var text=String(ed.value||'');
+			var lh=(typeof getLineHeightPx==='function')?getLineHeightPx(ed):21; if(!(lh>0)) lh=21;
+			var cw=(typeof getCharWidthPx==='function')?getCharWidthPx(ed):10;
+			var r=ed.getBoundingClientRect();
+			var cs=ed.currentStyle || (window.getComputedStyle?getComputedStyle(ed,null):null);
+			var padL=0,padT=0,borL=0,borT=0; try{
+				padL=parseFloat((cs && (cs.paddingLeft||cs['padding-left']))||0)||0;
+				padT=parseFloat((cs && (cs.paddingTop ||cs['padding-top']))||0)||0;
+				borL=parseFloat((cs && (cs.borderLeftWidth||cs['border-left-width']))||0); if(!isFinite(borL)) borL=ed.clientLeft||0;
+				borT=parseFloat((cs && (cs.borderTopWidth ||cs['border-top-width']))||0); if(!isFinite(borT)) borT=ed.clientTop ||0;
+			}catch(_){ borL=ed.clientLeft||0; borT=ed.clientTop||0; }
+			// 表示開始行を先に求める（後続の TextRange 補正で利用）
+			var viewH=ed.clientHeight;
+			var firstLine=Math.floor(ed.scrollTop / lh)+1;
+			// 基準行(最初の可視行) の実座標を TextRange で取得 (縦方向ドリフト防止)
+			var baseLeft=r.left + borL + padL, baseTop=r.top + borT + padT;
+			try{
+				if(ed.createTextRange && typeof lineStartByNumber==='function'){
+					var firstAbs0=lineStartByNumber(text, firstLine);
+					if(firstAbs0>=0){ var tr0=ed.createTextRange(); tr0.collapse(true); tr0.move('character', firstAbs0); var rc0=tr0.getBoundingClientRect(); if(rc0 && isFinite(rc0.left) && isFinite(rc0.top)){ baseLeft=rc0.left; baseTop=rc0.top; } }
+				}
+			}catch(_){ }
+			var visibleLines=Math.ceil(viewH / lh)+1; var lastLine=firstLine+visibleLines;
+			var tabstop=8; var ctrlColor=(window.THEME && THEME.listControlColor)||'#8ad0ff';
+			// 全角幅測定（1回キャッシュ）
+			function getFW(){
+					if(typeof window._fwCharWidth==='number' && window._fwCharWidth>0) return window._fwCharWidth;
+					try{
+						var span=document.createElement('span');
+						span.style.position='absolute'; span.style.visibility='hidden'; span.style.whiteSpace='pre';
+						span.style.fontFamily = cs ? (cs.fontFamily||cs['font-family']||'monospace') : 'monospace';
+						span.style.fontSize   = cs ? (cs.fontSize  ||cs['font-size']  ||'16px') : '16px';
+						var count=100; span.innerHTML = Array(count+1).join('あ');
+						document.body.appendChild(span);
+						var w = span.offsetWidth / count; document.body.removeChild(span);
+						window._fwCharWidth = (w&&isFinite(w)&&w>0)?w:(cw*2);
+						return window._fwCharWidth;
+					}catch(_){ window._fwCharWidth = cw*2; return window._fwCharWidth; }
+				}
+			var fw = getFW();
+			function isFW(ch){ var c=ch.charCodeAt(0); return (
+					(c>=0x1100&&c<=0x115F)||(c>=0x2E80&&c<=0xA4CF)||(c>=0xAC00&&c<=0xD7A3)||
+					(c>=0xF900&&c<=0xFAFF)||(c>=0xFE10&&c<=0xFE6F)||(c>=0xFF00&&c<=0xFF60)||(c>=0xFFE0&&c<=0xFFE6)
+				); }
+			var out=[];
+			for(var ln=firstLine; ln<lastLine; ln++){
+				var lineStart=(typeof lineStartByNumber==='function')?lineStartByNumber(text, ln):0;
+					if(lineStart<0 || lineStart>=text.length){ if(lineStart>=text.length) break; }
+				var lineEnd=(typeof lineEndIndex==='function')?lineEndIndex(text,lineStart):text.length;
+				var raw=text.slice(lineStart,lineEnd);
+				var hasNL=(lineEnd < text.length && text.charAt(lineEnd)=='\n');
+				var pixelX=0; var col=0; var adv=0; var precisePx=0; var visColsToPx=function(vc){ return vc * cw; };
+				var spaces=[]; // {idx, x}
+				var sym=[];    // {x, html}
+				for(var i=0;i<raw.length;i++){
+					var ch=raw.charAt(i);
+					if(ch==='\t'){
+						adv=tabstop - (col % tabstop); if(adv<=0) adv=tabstop;
+						sym.push({ posAbs: lineStart + i, html:'<span style="color:'+ctrlColor+'">▸</span>' });
+						col += adv; precisePx += adv * cw; pixelX = visColsToPx(col); continue;
+						}
+					if(ch===' '){
+						spaces.push({ idx:i, posAbs: lineStart + i });
+						col += 1; precisePx += cw; pixelX = visColsToPx(col); continue;
+						}
+						// 通常文字
+					var wcol = isFW(ch)?2:1; col += wcol; precisePx += isFW(ch)?fw:cw; pixelX = visColsToPx(col);
+					}
+					// 連続末尾スペースを抽出
+				if(spaces.length){
+					var lastNonSpaceIndex = raw.length - 1;
+					for(var k=raw.length-1;k>=0;k--){ if(raw.charAt(k)!==' ') { lastNonSpaceIndex = k; break; } }
+					for(var sidx=spaces.length-1; sidx>=0; sidx--){
+						var sp=spaces[sidx]; if(sp.idx>lastNonSpaceIndex){ sym.push({ posAbs: sp.posAbs, html:'<span style="color:'+ctrlColor+'">·</span>' }); }
+						else break;
+					}
+					}
+				if(hasNL){
+					// 改行種別判定: raw の直後の文字( lineEnd 時点 ) とその1つ先
+					var nlColor=(window.THEME && THEME.newlineColorLF)||ctrlColor;
+					try{
+						var c1=text.charAt(lineEnd); // 期待: '\n' または '\r'
+						var c2=text.charAt(lineEnd+1);
+						if(c1==='\r' && c2==='\n') nlColor = (THEME.newlineColorCRLF||nlColor);
+						else if(c1==='\r') nlColor = (THEME.newlineColorCR||nlColor);
+						else /* c1==='\n' */ nlColor = (THEME.newlineColorLF||nlColor);
+					}catch(_){ }
+					sym.push({ posAbs: lineEnd, html:'<span style="color:'+nlColor+'">↲</span>' });
+				}
+
+				// TextRange 実測で x を補正
+				if(ed.createTextRange && sym.length){
+					for(var si0=0; si0<sym.length; si0++){
+						var sm=sym[si0];
+						if(typeof sm.posAbs==='number'){
+							try{
+								var trm=ed.createTextRange();
+								trm.collapse(true);
+								trm.move('character', sm.posAbs);
+								var rcm=trm.getBoundingClientRect();
+								if(rcm && isFinite(rcm.left)) sm._x = rcm.left - baseLeft;
+							}catch(_){ }
+						}
+					}
+				}
+					// 行コンテナ生成
+				// 行の top は TextRange で個別実測（フォールバックは行番号 * lh）
+				var relTop=(function(){
+					try{
+						if(ed.createTextRange){ var trl=ed.createTextRange(); trl.collapse(true); trl.move('character', lineStart); var rcl=trl.getBoundingClientRect(); if(rcl && isFinite(rcl.top)) { var v=rcl.top - baseTop; var ideal=(ln-firstLine)*lh; if(Math.abs(v-ideal)>lh*0.6) return ideal; return v; } }
+					}catch(_){ }
+					return (ln-firstLine)*lh;
+				})();
+				var lineHTML='<div style="position:absolute;left:0;top:'+relTop+'px;height:'+lh+'px;width:100%;">';
+				for(var si=0; si<sym.length; si++){
+					var s=sym[si]; var px = (typeof s._x==='number')?s._x:(s.x||0); lineHTML+='<span style="position:absolute;left:'+Math.round(px)+'px;top:0;line-height:'+lh+'px;">'+s.html+'</span>';
+				}
+				lineHTML+='</div>';
+				out.push(lineHTML);
+				}
+			var lyr=ensureListLayer();
+			var fnt=(cs && (cs.fontFamily||cs['font-family']))||'monospace';
+			var fsz=(cs && (cs.fontSize||cs['font-size']))||'16px';
+			lyr.style.left=baseLeft+'px';
+			lyr.style.top =baseTop +'px';
+			lyr.style.width=(ed.clientWidth)+'px';
+			lyr.style.height=(viewH)+'px';
+			lyr.style.fontFamily=fnt;
+			lyr.style.fontSize=fsz;
+			lyr.innerHTML=out.join('');
+			lyr.style.display='block';
+		}catch(_){ }
+	}
+	function _refreshListLayer(force){ try{ if(window.OPT && OPT.list){ scheduleListLayerRender(!!force); } }catch(_){ } }
+	window._renderListLayer=_renderListLayer;
+	window._refreshListLayer=_refreshListLayer;
+	window.scheduleListLayerRender=scheduleListLayerRender;
 		function ensureCaretLayer(){
 				if (window._caretLayer) return window._caretLayer;
 				var layer = document.createElement('div');
@@ -14,7 +190,7 @@
 				try{
 					var ed = document.getElementById('editor');
 					if (ed){
-						var rerender = function(){ try{ _repositionCaret(); }catch(_){ } };
+						var rerender = function(){ try{ _repositionCaret(); }catch(_){ } try{ _refreshListLayer(); }catch(_){ } };
 						if (ed.addEventListener){ ed.addEventListener('scroll', rerender); ed.addEventListener('input', rerender); ed.addEventListener('keyup', rerender); ed.addEventListener('click', rerender); }
 						else if (ed.attachEvent){ ed.attachEvent('onscroll', rerender); ed.attachEvent('oninput', rerender); ed.attachEvent('onkeyup', rerender); ed.attachEvent('onclick', rerender); }
 						if (window.addEventListener) window.addEventListener('resize', rerender);
