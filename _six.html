@@ -198,10 +198,14 @@ var THEME = {
   ,tabButtonText: 'rgb(115,221,229)'       // スクロールボタン文字色
   ,tabButtonDisabledBg: 'rgb(27,47,15)'    // スクロールボタン(非活性)背景
   ,tabButtonDisabledText: 'rgb(31,51,19)' // スクロールボタン(非活性)文字色
-  ,listControlColor: 'rgb(128,210,255)' // list モード: 制御/可視化文字色 (タブ記号/末尾スペース)
+  ,listControlColor: 'rgb(223,233,255)' // list モード: 制御/可視化文字色 (タブ記号/末尾スペース)
   ,newlineColorLF: 'rgb(192,223,255)'
   ,newlineColorCR: 'rgb(255,0,0)'
   ,newlineColorCRLF: 'rgb(0,255,0)'
+    // six 拡張: 全角空白(U+3000) の表示カスタマイズ
+    ,fullwidthSpaceGlyph: '▢' // デフォルト字形 (U+25A2)。例: '□','␠','◻','◽','■' 等も可
+    ,fullwidthSpaceFont: '"Segoe UI Symbol","Yu Gothic UI","Meiryo","MS Gothic",monospace' // 強調表示用フォントスタック
+    ,fullwidthSpaceFontSizePct: 110 // 100=等倍。大きくしたい場合 110-125 程度（行高クリップ注意）
 };
 
   </script>

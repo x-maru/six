@@ -117,6 +117,18 @@
 				var sym=[];    // {x, html}
 				for(var i=0;i<raw.length;i++){
 					var ch=raw.charAt(i);
+						// six 拡張: 全角空白 (U+3000) は常時可視化（TAB 同様）記号は U+25A2 '▢'
+					if(ch==='\u3000'){
+						var fwGlyph=(THEME && THEME.fullwidthSpaceGlyph)||'▢';
+						var fwFont=(THEME && THEME.fullwidthSpaceFont)||'';
+						var fwSizePct=(THEME && THEME.fullwidthSpaceFontSizePct)||100;
+						var extraStyle='color:'+ctrlColor+';';
+						if(fwFont) extraStyle+='font-family:'+fwFont+';';
+						if(fwSizePct && fwSizePct!==100) extraStyle+='font-size:'+fwSizePct+'%;line-height:1;';
+						sym.push({ posAbs: lineStart + i, html:'<span style="'+extraStyle+'">'+fwGlyph+'</span>' });
+						// 幅計算: 全角 2cols 相当（視覚列+2, ピクセルは fw ）
+						col += 2; precisePx += fw; pixelX = visColsToPx(col); continue;
+					}
 					if(ch==='\t'){
 						adv=tabstop - (col % tabstop); if(adv<=0) adv=tabstop;
 						sym.push({ posAbs: lineStart + i, html:'<span style="color:'+ctrlColor+'">▸</span>' });
@@ -132,7 +144,7 @@
 					// 連続末尾スペースを抽出
 				if(spaces.length){
 					var lastNonSpaceIndex = raw.length - 1;
-					for(var k=raw.length-1;k>=0;k--){ if(raw.charAt(k)!==' ') { lastNonSpaceIndex = k; break; } }
+					for(var k=raw.length-1;k>=0;k--){ var ch2=raw.charAt(k); if(ch2!==' ' && ch2!=='\u3000' && ch2!=='\t'){ lastNonSpaceIndex = k; break; } }
 					for(var sidx=spaces.length-1; sidx>=0; sidx--){
 						var sp=spaces[sidx]; if(sp.idx>lastNonSpaceIndex){ sym.push({ posAbs: sp.posAbs, html:'<span style="color:'+ctrlColor+'">·</span>' }); }
 						else break;
