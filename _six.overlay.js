@@ -15,8 +15,20 @@
 			var ed=document.getElementById('editor');
 			if(ed && !ed._listBound){
 				var reb=function(){ try{ if(window.OPT && OPT.list) scheduleListLayerRender(false); }catch(_){ } };
-				if(ed.addEventListener){ ed.addEventListener('scroll', reb); ed.addEventListener('input', reb); ed.addEventListener('keyup', reb); ed.addEventListener('click', reb); }
-				else if(ed.attachEvent){ ed.attachEvent('onscroll', reb); ed.attachEvent('oninput', reb); ed.attachEvent('onkeyup', reb); ed.attachEvent('onclick', reb); }
+				var rebForce=function(){ try{ if(window.OPT && OPT.list) scheduleListLayerRender(true); }catch(_){ } };
+				if(ed.addEventListener){
+					ed.addEventListener('scroll', reb);
+					ed.addEventListener('keyup', reb);
+					ed.addEventListener('click', reb);
+					// INSERT 中の文字入力（追加/削除） は即時再描画
+					ed.addEventListener('input', rebForce);
+				}
+				else if(ed.attachEvent){
+					ed.attachEvent('onscroll', reb);
+					ed.attachEvent('onkeyup', reb);
+					ed.attachEvent('onclick', reb);
+					ed.attachEvent('oninput', rebForce);
+				}
 				ed._listBound=true;
 			}
 		}catch(_){ }
@@ -25,8 +37,18 @@
 
 	// 高頻度スクロール時は描画を遅延し直前の 1 回にまとめる (j 連打など)
 	var _listRenderTimer=null, _lastListRenderAt=0;
+	var _listLastSig=null; // 前回描画時の状態シグネチャ（スクロール・サイズ・変更カウンタ等）
 	function scheduleListLayerRender(force){
+		var ed=document.getElementById('editor');
 		if(force){ if(_listRenderTimer){ clearTimeout(_listRenderTimer); _listRenderTimer=null; } _renderListLayer(); return; }
+		// 変更が無ければスキップ（キャレット移動のみでチラつき防止）
+		try{
+			if(ed && window.OPT && OPT.list){
+				var sig=[ed.scrollTop, ed.scrollLeft, ed.clientWidth, ed.clientHeight, (window.modifiedCount||0), 1].join('|');
+				if(sig===_listLastSig) return; // 状態不変 → 再描画不要
+				_listLastSig=sig; // 先に記録（短時間に多重イベントでも一度だけスケジュール）
+			}
+		}catch(_){ }
 		var now=+new Date();
 		// 直近描画から一定時間(70ms)未満なら再スケジューリングのみ
 		var delay=70;
@@ -160,6 +182,8 @@
 				out.push(lineHTML);
 				}
 			var lyr=ensureListLayer();
+			// 実描画後の最終シグネチャを更新（スクロールやサイズが描画中に変わっていた場合）
+			try{ _listLastSig=[ed.scrollTop, ed.scrollLeft, ed.clientWidth, ed.clientHeight, (window.modifiedCount||0), 1].join('|'); }catch(_){ }
 			var fnt=(cs && (cs.fontFamily||cs['font-family']))||'monospace';
 			var fsz=(cs && (cs.fontSize||cs['font-size']))||'16px';
 			lyr.style.left=baseLeft+'px';
