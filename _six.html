@@ -20,32 +20,33 @@
 </script>
 </head>
 <body>
-  <!-- 画面下部コマンド/ステータス/メッセージバー（統合） -->
-  <div id="cmdbar" tabindex="0">
-    <div id="statusline1">
-      <span id="filename"></span>
-      <span id="modmark"></span>
-      <span id="mode"></span>
-      <span id="pos"></span>
-      <span id="hint"></span>
-    </div>
-    <div id="statusline2">
-      <div id="cmdmsg" style="display:none;"></div>
-      <span id="cmdprefix" style="display:none">:</span>
-      <input id="cmdline" type="text" style="display:none" />
-    </div>
-  </div>
   <div id="pane">
+    <!-- 1. タブバー -->
     <div id="tabbar">
       <button id="tabScrollLeft" title="前のタブ" onclick="try{scrollTabBar(-1);}catch(_){ }">&#x25C0;</button>
       <div id="tabsWrap"><div id="tabs"></div></div>
       <button id="tabScrollRight" title="次のタブ" onclick="try{scrollTabBar(1);}catch(_){ }">&#x25B6;</button>
     </div>
-    <div id="editArea">
-      <div id="edstripe"></div>
-      <div id="gutter"></div>
-      <textarea id="editor" spellcheck="false" wrap="off"
-        placeholder="ここにテキストを入力…&#10;NORMALでは h j k l / ←↓↑→ / w b / ^ 0 $ / gg G、行挿入 o/O、挿入 a/A、行頭 I。&#10;/ と ? で検索、n/N で次/前。&#10;i で INSERT、Esc で NORMAL。:w で保存、:help でヘルプ。"></textarea>
+    <!-- 2. 本文 + コマンドバーラッパ (行ロック時の高さ計算を単純化) -->
+    <div id="editWrap">
+      <div id="editArea">
+        <div id="edstripe"></div>
+        <div id="gutter"></div>
+        <textarea id="editor" spellcheck="false" wrap="off"
+          placeholder="ここにテキストを入力…&#10;NORMALでは h j k l / ←↓↑→ / w b / ^ 0 $ / gg G、行挿入 o/O、挿入 a/A、行頭 I。&#10;/ と ? で検索、n/N で次/前。&#10;i で INSERT、Esc で NORMAL。:w で保存、:help でヘルプ。"></textarea>
+      </div>
+      <div id="cmdbar" tabindex="0">
+      <div id="cmdbarMain">
+        <div id="cmdlineWrap">
+          <span id="cmdprefix">:</span>
+          <input id="cmdline" type="text" />
+          <span id="cmdmsg" class="in-cmd" style="display:none;"></span>
+        </div>
+        <span id="mode"></span>
+        <span id="pos"></span>
+        <span id="helpHint">[ヘルプ: F1/:help]</span>
+      </div>
+      </div>
     </div>
   </div>
   <!-- ヘルプ（最小の“使えるコマンド一覧”） -->
@@ -172,10 +173,11 @@ var TEXTAREA_HEIGHT = 32;
 // ====== THEME 定数（後で直接編集で調整） ======
 // 動的変更は想定しないため単純なリテラル。run-command 側から参照。
 var THEME = {
-  stripeEvenColor: 'darkSlateGray' // 偶数行背景
-  ,eofFillColor: 'gray'             // EOF 以降の塗り潰し
+  eofFillColor: 'gray'             // EOF 以降の塗り潰し
+   ,eofGutterFillColor: 'rgb(127,255,127)' // ガター側 EOF 端数行/余白塗り潰し（デバッグ用視認色）
   ,gradientLineStart: 'rgb(243,251,243)' // 行背景グラデーション開始色
-  ,gradientLineEnd: 'rgb(237,243,237)'    // 行背景グラデーション終了色
+  ,gradientLineEnd: 'rgb(237,243,237)'    // 行背景グラデーション終了色 (各行の下端色)
+  ,lineBaseFill: 'rgb(245,249,245)'       // ストライプレイヤ (#edstripe) のベース塗りつぶし色。行の隙間/端数で gradientLineEnd が露出するのを避ける
   ,activeLineGradientStart: 'rgb(231,255,231)'   // 本文アクティブ行背景開始
   ,activeLineGradientEnd: 'rgb(219,243,219)'     // 本文アクティブ行背景終了
   ,gutterGradientStart: 'rgb(235,239,235)' // ガター行背景グラデーション開始色
@@ -207,6 +209,11 @@ var THEME = {
     ,fullwidthSpaceFont: '"Segoe UI Symbol","Yu Gothic UI","Meiryo","MS Gothic",monospace' // 強調表示用フォントスタック
     ,fullwidthSpaceFontSizePct: 110 // 100=等倍。大きくしたい場合 110-125 程度（行高クリップ注意）
 };
+OPT.scrolloff=0;
+THEME.eofFillColor = 'yellow';
+THEME.gradientLineEnd = 'purple';
+THEME.lineBaseFill = 'orange';
+THEME.gutterGradientEnd = 'brown';
 
   </script>
 
@@ -214,7 +221,6 @@ var THEME = {
   <script type="text/javascript" src="_six.overlay.js"></script>
   <script type="text/javascript" src="_six.run-command.js"></script>
   <script type="text/javascript" src="_six.search.js"></script>
-  <script type="text/javascript" src="_six.other.js"></script>
   <script type="text/javascript" src="_six.initial-terminate.js"></script>
 </body>
 </html>
