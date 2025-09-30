@@ -136,6 +136,54 @@ function applyStaticEditorSizeAndWindow(){
   }catch(_){ }
 }
 
+// 可視行高さ整数化: editorViewport の高さを行高 * floor(利用可能高さ/行高) に調整
+function adjustViewportHeight(){
+  try{
+    var vp=document.getElementById('editorViewport'); var ed=document.getElementById('editor'); var tab=document.getElementById('tabbar'); var cmd=document.getElementById('cmdbar');
+    if(!vp||!ed) return;
+    // 初期フレームの一時非表示（余剰行チラつき防止）
+    if (!vp._initVisApplied){
+      try{ var st=document.getElementById('edstripe'); if(st) st.style.visibility='hidden'; }catch(_){ }
+      try{ var gt=document.getElementById('gutter'); if(gt) gt.style.visibility='hidden'; }catch(_){ }
+    }
+    // 利用可能高さ: editWrap 内で tabbar 下端～ cmdbar 上端
+    var tabRect=tab?tab.getBoundingClientRect():null; var cmdRect=cmd?cmd.getBoundingClientRect():null; var wrap=document.getElementById('editWrap'); var wrapRect=wrap?wrap.getBoundingClientRect():null;
+    if(!wrapRect) return;
+    var topY = tabRect ? tabRect.bottom : wrapRect.top; // タブバー下端
+    var bottomY = cmdRect ? cmdRect.top : wrapRect.bottom; // コマンドバー上端
+    var avail = bottomY - topY; if(!(avail>0)) return;
+    var lh=(typeof getLineHeightPx==='function')?getLineHeightPx(ed):0; if(!(lh>0)) return;
+  var maxLines = Math.floor(avail / lh); if(maxLines<1) return;
+  // 上限は line lock 時のみ適用（通常時はウィンドウサイズに追従）
+  if (window._lineLockActive && typeof TEXTAREA_HEIGHT==='number' && TEXTAREA_HEIGHT>0){ if(maxLines > TEXTAREA_HEIGHT) maxLines = TEXTAREA_HEIGHT; }
+  // 行高 * 行数 をそのまま使用（round で 921.6→922 のように端数繰上げされる齟齬を排除）
+  // floor 行数のみ採用（繰上げ禁止）。余りは切り捨てて露出防止。
+  var target = maxLines * lh;
+  target = Math.floor(target * 100) / 100; // 2桁精度 floor
+  if (Math.abs(vp.clientHeight - target) > 0.05){ vp.style.height = target + 'px'; }
+  if (!window._tViewportSet){ try{ window._tViewportSet = Date.now() - (window._tStart||Date.now()); }catch(_){ } }
+    // IE/MSHTML の layout 丸めで 0.01 行余りが出るケース対策: clientHeight を取得後 floor 行数に再スナップ
+    try{ // 再スナップ（冪等）
+      var ch = vp.clientHeight; var lh2 = lh; if(lh2>0){
+        var linesF = Math.floor(ch / lh2); var exact = linesF * lh2; var diff = ch - exact;
+        if (diff > 0.01){ var newH = Math.floor(exact*100)/100; if (newH < ch) vp.style.height = newH + 'px'; }
+      }
+    }catch(_){ }
+    // line lock 高さ直接指定が干渉している場合は解除（viewport 優先）
+    try{ if(window._lineLockActive){ var edh=parseFloat(ed.style.height)||0; if(edh && Math.abs(edh - target) > lh*0.9){ ed.style.height = target + 'px'; } } }catch(_){ }
+    // スクロール/ガター再描画
+  try{ updateGutter(); }catch(_){ }
+  try{ ensureScrolloff(ed); }catch(_){ }
+  try{ if(window._refreshListLayer) _refreshListLayer(true); }catch(_){ }
+  if(!window._tFirstPaint){ try{ window._tFirstPaint = Date.now() - (window._tStart||Date.now()); }catch(_){ } }
+    // 表示復帰
+    if (!vp._initVisApplied){
+      vp._initVisApplied = true;
+      setTimeout(function(){ try{ var st=document.getElementById('edstripe'); if(st) st.style.visibility='visible'; }catch(_){ } try{ var gt=document.getElementById('gutter'); if(gt) gt.style.visibility='visible'; }catch(_){ } }, 0);
+    }
+  }catch(_){ }
+}
+
 // 幅リファイン: 実際に見えている列数が TEXTAREA_WIDTH 未満なら追加リサイズ
 function _refineWidth(){
   try{
@@ -225,21 +273,62 @@ function syncEditorSize(){
 }
 try{
   if (window.addEventListener){
-    window.addEventListener('resize', function(){ syncEditorSize(); });
+  window.addEventListener('resize', function(){ syncEditorSize(); try{ adjustViewportHeight(); }catch(_){ } });
   }else if (window.attachEvent){
     window.attachEvent('onresize', function(){ syncEditorSize(); });
   }
 }catch(_){ }
 
 // 初期同期（applyStaticEditorSizeAndWindow 後）
-try{ setTimeout(syncEditorSize, 400); }catch(_){ }
+try{ setTimeout(function(){ syncEditorSize(); try{ adjustViewportHeight(); }catch(_){ } }, 400); }catch(_){ }
+// 起動タイムライン基準
+try{ if(!window._tStart) window._tStart = Date.now(); }catch(_){ }
 
 // 起動時に一度だけ実行
+// 早期軽量ペイント: 重い幅/再計測処理前に最初の行群を描画しキー入力を早期解放
+function initialQuickViewportPaint(){
+  try{
+    var vp=document.getElementById('editorViewport'); var ed=document.getElementById('editor'); if(!vp||!ed) return;
+    var tab=document.getElementById('tabbar'); var cmd=document.getElementById('cmdbar');
+    var wrap=document.getElementById('editWrap'); var wrapRect=wrap?wrap.getBoundingClientRect():null; if(!wrapRect) return;
+    var tabRect=tab?tab.getBoundingClientRect():null; var cmdRect=cmd?cmd.getBoundingClientRect():null;
+    var topY = tabRect ? tabRect.bottom : wrapRect.top; var bottomY = cmdRect ? cmdRect.top : wrapRect.bottom; var avail = bottomY - topY; if(!(avail>0)) return;
+    var lh=getLineHeightPx(ed); if(!(lh>0)) return;
+    var lines = Math.max(1, Math.floor(avail / lh));
+    var targetH = Math.floor(lines * lh * 100)/100;
+    vp.style.height = targetH + 'px';
+    if(!window._tViewportSet){ try{ window._tViewportSet = Date.now() - (window._tStart||Date.now()); }catch(_){ } }
+    try{ updateGutter(); }catch(_){ }
+    try{ ensureScrolloff(ed); }catch(_){ }
+    if(!window._tFirstPaint){ try{ window._tFirstPaint = Date.now() - (window._tStart||Date.now()); }catch(_){ } }
+  try{ clampViewportExactLines(false); }catch(_){ }
+    try{ ed.focus(); }catch(_){ }
+  }catch(_){ }
+}
+
+// ビューポート高さを行高 * 整数行に強制クランプ（clientHeight が繰上がるケース対策）
+function clampViewportExactLines(force){
+  try{
+    var vp=document.getElementById('editorViewport'); var ed=document.getElementById('editor'); if(!vp||!ed) return;
+    var lh=getLineHeightPx(ed); if(!(lh>0)) return;
+    var ch=vp.clientHeight||0; var sh=parseFloat(vp.style.height||'')||0;
+    var lines=Math.floor((sh>0?sh:ch)/lh); if(lines<1) lines=1;
+    var target = lines * lh; // 端数なし
+    var need = force || Math.abs(ch - target) > 0.25 || Math.abs(sh - target) > 0.25;
+  if(!need) return;
+  vp.style.height = target + 'px';
+  vp.style.maxHeight = target + 'px'; // flex 再配分による繰上げ防止
+  // 同期再描画（後続フレーム遅延によるスクロール再補正を減らす）
+  try{ updateGutter(); ensureScrolloff(ed); if(window._refreshListLayer) _refreshListLayer(true); }catch(_){ }
+  }catch(_){ }
+}
+// 起動後の安定化フォロー: 300ms 時点でも端数が残っていれば再クランプ
+try{ setTimeout(function(){ clampViewportExactLines(false); }, 300); }catch(_){ }
 try{
-  if (window.addEventListener) window.addEventListener('DOMContentLoaded', applyStaticEditorSizeAndWindow, false);
-  else if (window.attachEvent) window.attachEvent('onload', applyStaticEditorSizeAndWindow);
-  else setTimeout(applyStaticEditorSizeAndWindow, 300);
-}catch(_){ setTimeout(applyStaticEditorSizeAndWindow, 300); }
+  if (window.addEventListener) window.addEventListener('DOMContentLoaded', function(){ try{ initialQuickViewportPaint(); }catch(_){ } applyStaticEditorSizeAndWindow(); try{ setTimeout(adjustViewportHeight, 60); setTimeout(adjustViewportHeight, 180); }catch(_){ } }, false);
+  else if (window.attachEvent) window.attachEvent('onload', function(){ initialQuickViewportPaint(); applyStaticEditorSizeAndWindow(); });
+  else setTimeout(function(){ initialQuickViewportPaint(); applyStaticEditorSizeAndWindow(); }, 120);
+}catch(_){ setTimeout(function(){ initialQuickViewportPaint(); applyStaticEditorSizeAndWindow(); }, 200); }
 
 // 行ロック（本文ペインを行高 * TEXTAREA_HEIGHT で固定し端数行を外側に追い出す）
 function _initLineLock(){
@@ -514,7 +603,7 @@ function _getSelStartEndIE(editor){
         window._imeSnap = null;
         window._edImeCancelled = false;
         window._imeRestoring = false;
-        updateStatus(editor); ensureScrolloff(editor); updateGutter();
+  _afterEditFrame();
       }catch(_){ }
     }
     function forceCancelIME(){
@@ -544,7 +633,7 @@ function _getSelStartEndIE(editor){
             try{ editor.disabled = prevDisabled; }catch(_){ }
             var s2 = snap ? snap.s : (typeof editor.selectionStart==='number'?editor.selectionStart:getCaret(editor));
             try{ if (editor.setSelectionRange) editor.setSelectionRange(s2, s2); else setCaret(editor, s2); }catch(_){ }
-            updateStatus(editor); ensureScrolloff(editor); updateGutter();
+            _afterEditFrame();
           }catch(_){ }
           finally{ window._imeForcingCancel = false; }
         }, 30);
@@ -653,6 +742,16 @@ function getLineHeightPx(editor){
   if (!lh || !isFinite(lh)) lh = Math.round(fs * 1.6);
   return lh;
 }
+// ---- 追加: viewport 高さ計算 (style.height 優先) & 行数キャッシュ ----
+function _vpCalcHeight(){
+  try{
+    var vp=document.getElementById('editorViewport'); if(!vp) return 0;
+    var sh=parseFloat(vp.style.height||''); if(sh && sh>0) return sh;
+    return vp.clientHeight||0;
+  }catch(_){ return 0; }
+}
+var _cachedLineSrc=null,_cachedLineCount=1;
+function cachedTotalLines(t){ try{ if(t===_cachedLineSrc) return _cachedLineCount; var c=totalLines(t); _cachedLineSrc=t; _cachedLineCount=c; return c; }catch(_){ return totalLines(t); } }
 function isSpace(ch){ return ch===' '||ch==='\t'||ch==='\u3000'; }
 function firstNonBlankPos(text,pos){ var s=lineStartIndex(text,pos), e=lineEndIndex(text,pos), i=s; while(i<e && isSpace(text[i])) i++; return i; }
 // 追加/置換: 行数関連ユーティリティ（末尾改行は余分に数えない）
@@ -703,7 +802,7 @@ if (typeof deleteRange !== 'function') {
     editor.value = v.slice(0, from) + v.slice(to);
     try{ setCaret(editor, from); }catch(_){ }
     try{ modifiedCount++; updateModifiedFlag(); }catch(_){ }
-    try{ updateStatus(editor); ensureScrolloff(editor); updateGutter(); }catch(_){ }
+  try{ _afterEditFrame(); }catch(_){ }
     try{ lastCmd='delete'; lastDeleteLinewise = !!(opts && opts.linewise); }catch(_){ }
   }
 }
@@ -1363,7 +1462,7 @@ function pasteInsert(editor, insPos, t){
   editor.value = v.slice(0, insPos) + t + v.slice(insPos);
   setCaret(editor, insPos + t.length);
   modifiedCount++; updateModifiedFlag();
-  updateStatus(editor); ensureScrolloff(editor); updateGutter();
+  _afterEditFrame();
   try{ ensureWindowResizer(); }catch(_){ }
   // 貼り付けでチェーンを切る
   lastCmd = 'other';
@@ -1414,7 +1513,7 @@ function openLineBelow(editor){
   editor.value = v.slice(0, ins) + '\n' + v.slice(ins);
   setCaret(editor, ins);
   try{ modifiedCount++; updateModifiedFlag(); }catch(_){ }
-  try{ updateStatus(editor); ensureScrolloff(editor); updateGutter(); }catch(_){ }
+  try{ _afterEditFrame(); }catch(_){ }
 }
 function openLineAbove(editor){
   var v = editor.value;
@@ -1424,7 +1523,7 @@ function openLineAbove(editor){
   editor.value = v.slice(0, ls) + '\n' + v.slice(ls);
   setCaret(editor, ls);
   try{ modifiedCount++; updateModifiedFlag(); }catch(_){ }
-  try{ updateStatus(editor); ensureScrolloff(editor); updateGutter(); }catch(_){ }
+  try{ _afterEditFrame(); }catch(_){ }
 }
 // ====== ステータス・メッセージ・ヘルプ ======
 function updateStatus(editor){
@@ -1742,6 +1841,25 @@ function toggleHelp(){ var h=document.getElementById('help'); h.style.display = 
     try{ if (typeof _safeAdd==='function'){ _safeAdd(sc, 'keydown', handleHelpKey, true); } else { if (sc.addEventListener) sc.addEventListener('keydown', handleHelpKey, true); else if (sc.attachEvent) sc.attachEvent('onkeydown', handleHelpKey); } }catch(_){ }
   })();
 // ====== ガター ======
+// ====== 一括再描画スケジューラ ======
+var _afterEditScheduled = false;
+function _afterEditFrame(){
+  try{
+    if (_afterEditScheduled) return;
+    _afterEditScheduled = true;
+    setTimeout(function(){
+      _afterEditScheduled = false;
+      var ed = document.getElementById('editor');
+      if (!ed) return;
+      try{ if (typeof updateStatus==='function') updateStatus(ed); }catch(_){ }
+      try{ if (typeof ensureScrolloff==='function') ensureScrolloff(ed); }catch(_){ }
+  // 高さ端数を先に clamp（行境界安定化）
+  try{ if (typeof clampViewportExactLines==='function') clampViewportExactLines(false); }catch(_){ }
+  try{ updateGutter(); }catch(_){ }
+    },0);
+  }catch(_){ }
+}
+/* 既存コード内の updateStatus(ed); ensureScrolloff(ed); updateGutter(); 連続呼び出しは順次 _afterEditFrame() に移行予定 */
 function updateGutter() {
   var gutter = document.getElementById('gutter');
   var editor = document.getElementById('editor');
@@ -1757,12 +1875,12 @@ function updateGutter() {
   gutter.style.display='block';
   editor.style.paddingLeft='0.5rem';
   var text = editor.value;
-  var total = totalLines(text);
+  var total = cachedTotalLines(text);
   var lh = getLineHeightPx(editor);
   // 小数pxを維持してテキストと完全一致させる
   var lhExact = (lh && isFinite(lh) && lh > 0) ? lh : 16;
-  // 末行が“ほぼフル”と見なす閾値 (0.9→0.4 に緩和: 下端で中途半端な単色/ギャップを減らす)
-  var PARTIAL_FULL_THRESHOLD = (window.PARTIAL_FULL_THRESHOLD != null)?window.PARTIAL_FULL_THRESHOLD:0.4;
+  // 末行が“ほぼフル”と見なす閾値 (0.15に再緩和: 白帯防止)
+  var PARTIAL_FULL_THRESHOLD = 0.15;
   // エディタの上パディングをガターにも適用（基準位置を揃える）
   var padTop = 0, padBottom = 0; 
   try{ 
@@ -1777,64 +1895,51 @@ function updateGutter() {
   // ステータスバー高さ（行ロック時は editor 自体をちょうど行数分に収める想定なので差し引かない）
   var STATUSBAR_H = (function(){ var cb=document.getElementById('cmdbar'); return cb && cb.offsetHeight ? cb.offsetHeight|0 : 28; })();
   if (window._lineLockActive){ try{ editor.style.paddingBottom='0px'; }catch(_){ } }
-  // ===== 上端端数スナップ + 動的 EOF 下余白 (一発再計算) =====
-  // 1) 上端スナップ
+  // ===== 上端端数スナップ + EOF余白一本化 =====
   try{
     if (!window._snapTopGuard && getScrolloff()===0){
       if (editor.scrollTop > 0 && editor.scrollTop < lhExact*0.85){
         window._snapTopGuard = true; editor.scrollTop = 0; window._snapTopGuard=false;
       }
     }
-  }catch(_){ }
-  var startLine = Math.floor(editor.scrollTop / lhExact);
-  // 2) EOF 判定用 provisional visible (padding-bottom 無視)
-  var clientH0 = editor.clientHeight;
-  // paintable 高さ: editor 自身の clientHeight をそのまま利用（cmdbar は別要素で重ならないため控除不要）
-  var effH0 = window._lineLockActive ? (lhExact * ((typeof TEXTAREA_HEIGHT==='number'&&TEXTAREA_HEIGHT>0)?TEXTAREA_HEIGHT:1)) : clientH0;
-  if (effH0 < lhExact) effH0 = lhExact;
-  var topFrac0 = editor.scrollTop % lhExact;
-  var provisionalVisible = Math.ceil((effH0 + topFrac0 - padBottom) / lhExact);
-  if (provisionalVisible < 1) provisionalVisible = 1;
-  var provisionalEnd = startLine + provisionalVisible;
-  var needPad = (provisionalEnd >= total);
-  // 3) padding-bottom 適用/除去
+  }catch(_){}
+  // startLine: シンプルな floor（繰上げは副作用増大のため撤回）
+  // startLine 算出前に topFrac が 0.985 以上（ほぼ次行境界）なら切り捨てて行ずれ防止
+  var _stRaw = editor.scrollTop;
+  var _modRaw = lhExact>0 ? (_stRaw % lhExact) : 0;
+  if (lhExact>0 && (_modRaw / lhExact) > 0.985){ _stRaw -= _modRaw; }
+  var startLine = Math.floor(_stRaw / lhExact);
+  var vpEl = document.getElementById('editorViewport');
+  var clientH = vpEl ? _vpCalcHeight() : editor.clientHeight;
+  var padBottom = 0;
   try{
-    if (window._basePadBottom === undefined){
-      var _cs0 = window.getComputedStyle?getComputedStyle(editor):editor.currentStyle; window._basePadBottom = _cs0 ? (_cs0.paddingBottom||'0px') : '0px';
-    }
-    var wantPad = needPad ? window._basePadBottom : '0px';
-    if (!window._lineLockActive && editor.style.paddingBottom !== wantPad){
-      editor.style.paddingBottom = wantPad;
-      // 再取得し padBottom 値を更新
-      try{ var cs2 = window.getComputedStyle?getComputedStyle(editor):editor.currentStyle; padBottom = parseFloat(cs2.paddingBottom)||0; }catch(_){ }
-      // 高さ変化を反映
-  clientH0 = editor.clientHeight; effH0 = clientH0; if (effH0 < lhExact) effH0 = lhExact;
-    }
-  }catch(_){ }
-  // 4) 最終 effHeight / visible 再計算 (EOF 未達なら padBottom は 0 のはず)
-  var effHeight = effH0;
-  if (!window._lineLockActive && !needPad){ effHeight -= padBottom; if (effHeight < lhExact) effHeight = lhExact; }
-  var topFrac = editor.scrollTop % lhExact;
-  var visible = window._lineLockActive ? ((typeof TEXTAREA_HEIGHT==='number'&&TEXTAREA_HEIGHT>0)?TEXTAREA_HEIGHT:1) : Math.ceil((effHeight + topFrac) / lhExact);
+    var cs = window.getComputedStyle?getComputedStyle(editor):editor.currentStyle;
+    padBottom = parseFloat(cs.paddingBottom)||0;
+  }catch(_){}
+  // EOF余白はendLine===totalのときのみbasePadBottom、それ以外は0
+  if (window._basePadBottom === undefined){
+    try{
+      var _cs0 = window.getComputedStyle?getComputedStyle(editor):editor.currentStyle;
+      window._basePadBottom = _cs0 ? (_cs0.paddingBottom||'0px') : '0px';
+    }catch(_){}
+  }
+  var effHeight = clientH - padBottom;
+  if (effHeight < lhExact) effHeight = lhExact;
+  var visible = window._lineLockActive ? ((typeof TEXTAREA_HEIGHT==='number'&&TEXTAREA_HEIGHT>0)?TEXTAREA_HEIGHT:1) : Math.floor(effHeight / lhExact);
   if (visible < 1) visible = 1;
   var endLine = Math.min(total, startLine + visible);
-  // --- 動的 EOF 余白: EOF 近く以外では下 padding を 0 にして余白の早期出現を防ぐ ---
+  // 末尾付近で残スクロールがごく僅かならendLine昇格
   try{
-    if (window._basePadBottom === undefined){
-      var _cs0 = window.getComputedStyle?getComputedStyle(editor):editor.currentStyle; window._basePadBottom = _cs0 ? (_cs0.paddingBottom||'0px') : '0px';
+    var remainPx = (editor.scrollHeight - editor.clientHeight) - editor.scrollTop;
+    if (remainPx < lhExact * 0.25 && total - endLine <= 1){ endLine = total; }
+  }catch(_){}
+  // EOF余白一本化
+  if (!window._lineLockActive){
+    var wantPad = (endLine === total) ? window._basePadBottom : '0px';
+    if (editor.style.paddingBottom !== wantPad){
+      editor.style.paddingBottom = wantPad;
     }
-    if (!window._lineLockActive){
-      var wantPad = (endLine === total) ? window._basePadBottom : '0px';
-      if (editor.style.paddingBottom !== wantPad){
-        editor.style.paddingBottom = wantPad;
-        // padding 変更で clientHeight が変わるため再計算（ループ防止ガード）
-        if (!window._updatingGutterPadAdjust){
-          window._updatingGutterPadAdjust = true;
-          setTimeout(function(){ try{ window._updatingGutterPadAdjust=false; updateGutter(); }catch(_){ window._updatingGutterPadAdjust=false; } },0);
-        }
-      }
-    }
-  }catch(_){ }
+  }
   var html = [];
   // ガター用グラデーション色（本文とは別指定可）
   var ggs = (window.THEME && window.THEME.gutterGradientStart) ? window.THEME.gutterGradientStart : (window.THEME.gradientLineStart || 'rgb(243,247,243)');
@@ -1851,11 +1956,11 @@ function updateGutter() {
   try { caretLine1 = getLineCol(text, caretPos).line; } catch(_){ caretLine1 = 1; }
   var limitGutter;
   if (window._lineLockActive){
-    limitGutter = editor.clientHeight - padBottom;
+  limitGutter = (vpEl?_vpCalcHeight():editor.clientHeight) - padBottom;
   } else {
-    limitGutter = editor.clientHeight - padBottom;
+  limitGutter = (vpEl?_vpCalcHeight():editor.clientHeight) - padBottom;
   }
-  if (limitGutter < 0) limitGutter = editor.clientHeight;
+  if (limitGutter < 0) limitGutter = (vpEl?_vpCalcHeight():editor.clientHeight);
   var _gMaxBottom = padTop;
   for (var ln = startLine + 1; ln <= endLine; ln++) {
     var relIdxG = (ln - 1) - startLine;
@@ -1892,15 +1997,14 @@ function updateGutter() {
   var padFrac = padTop - (padTop|0);
   var transOffset = offset + padFrac;
   // サブピクセル描画で稀に 1px の“黒い縁”が現れる問題への対策: 整数へスナップ（_noSnapGutter=true で無効化）
-  try{ if(!window._noSnapGutter){
-    // 端数スナップ: 負値時は Math.ceil で 0 に寄せ過ぎない（Math.round だと -0.4→0 / -0.6→-1 の揺れ要因）
-    if (transOffset < 0) transOffset = Math.ceil(transOffset); else transOffset = Math.round(transOffset);
-  } }catch(_){ }
-  gutter.style.transform = 'translateY(' + transOffset + 'px)';
+    try{ if(!window._noSnapGutter){
+      if (Math.abs(transOffset - Math.round(transOffset)) > 0.45) transOffset = Math.round(transOffset);
+    } }catch(_){ }
+    gutter.style.transform = 'translateY(' + transOffset + 'px)';
   // ガター側ギャップフィル(部分表示後に緑が露出したら埋める)
   try{
     if (endLine < total){
-      var gapG = (editor.clientHeight - padBottom) - _gMaxBottom;
+  var gapG = ((vpEl?vpEl.clientHeight:editor.clientHeight) - padBottom) - _gMaxBottom;
       if (gapG > 0.6){ if (gapG > lhExact) gapG = lhExact; gutter.innerHTML += '<div style="position:absolute;left:0;right:0;top:'+_gMaxBottom+'px;height:'+gapG+'px;background:linear-gradient(to bottom,'+ggs+','+gge+');pointer-events:none;overflow:hidden;"></div>'; _gMaxBottom += gapG; }
     }
   }catch(_){ }
@@ -1908,19 +2012,23 @@ function updateGutter() {
   try {
     // 前回 EOF fill を一掃（再利用より安全）
     try{ var oldEOFs = gutter.querySelectorAll('[data-eof-fill]'); for(var _i=0;_i<oldEOFs.length;_i++){ oldEOFs[_i].parentNode.removeChild(oldEOFs[_i]); } }catch(_){ }
-    if (endLine === total) {
+  if (endLine === total) {
       // 可視最終行 index (0-based)
       var lastLineIdxG = total - 1; if (lastLineIdxG < 0) lastLineIdxG = 0;
       var lastLineBottom = padTop + (lastLineIdxG + 1 - startLine) * lhExact; // 最終行下端（可視座標）
       if (lastLineBottom < 0) lastLineBottom = 0;
       // 可視領域内にまだ高さが残る (EOF 以降の背景) 場合のみ塗る
-      var limitBottom = editor.clientHeight; // padBottom 部分も EOF 色で埋める（透け防止）
+  var limitBottom = (vpEl?vpEl.clientHeight:editor.clientHeight); // padBottom 部分も EOF 色で埋める（透け防止）
       if (lastLineBottom < limitBottom){
-        var eofHeightG = limitBottom - lastLineBottom;
-        if (eofHeightG < 0) eofHeightG = 0;
-        if (gutter.style.position==='static' || !gutter.style.position) gutter.style.position='relative';
-  var _gEOFCol = (window.THEME && window.THEME.eofGutterFillColor) ? window.THEME.eofGutterFillColor : (window.THEME.eofFillColor||'yellow');
-  gutter.innerHTML += '<div data-eof-fill="1" style="position:absolute;left:0;right:0;top:'+lastLineBottom+'px;height:'+eofHeightG+'px;background:'+_gEOFCol+';pointer-events:none;"></div>';
+        // ダミー 1 行分のみ（ファイル行数が viewport 行数以上のとき）
+        var dummyH = lhExact;
+        if (lastLineBottom + dummyH > limitBottom) dummyH = limitBottom - lastLineBottom;
+        if (dummyH < 0) dummyH = 0;
+        if (dummyH > 0 && (total > (Math.floor(limitBottom / lhExact)))){
+          if (gutter.style.position==='static' || !gutter.style.position) gutter.style.position='relative';
+          var _gEOFCol = (window.THEME && window.THEME.eofGutterFillColor) ? window.THEME.eofGutterFillColor : (window.THEME.eofFillColor||'yellow');
+          gutter.innerHTML += '<div data-eof-fill="1" style="position:absolute;left:0;right:0;top:'+lastLineBottom+'px;height:'+dummyH+'px;background:'+_gEOFCol+';pointer-events:none;"></div>';
+        }
       }
     } else {
       // 次行端数背景は上記ループ内部分描画により再導入済み
@@ -1958,14 +2066,10 @@ function updateGutter() {
     var limitStripe;
     if (window._lineLockActive){
       var lockLines = (typeof TEXTAREA_HEIGHT==='number' && TEXTAREA_HEIGHT>0)?TEXTAREA_HEIGHT:1;
-      limitStripe = padTopInt + lhExact * lockLines; // padding-top + 行数分
+      limitStripe = padTopInt + lhExact * lockLines;
     } else {
-  if (!window._lineLockActive){
-    limitStripe = editor.clientHeight - padBottom;
-  } else {
-    limitStripe = editor.clientHeight - padBottom;
-  }
-  if (limitStripe < 0) limitStripe = editor.clientHeight;
+      limitStripe = (vpEl?_vpCalcHeight():editor.clientHeight) - padBottom;
+      if (limitStripe < 0) limitStripe = (vpEl?_vpCalcHeight():editor.clientHeight);
     }
   var _sMaxBottom = padTopInt;
   for (var lnum = viewStart; lnum <= viewEnd; lnum++){
@@ -2001,20 +2105,33 @@ function updateGutter() {
       // 古い EOF fill 削除
       try{ var oldEOFs2 = stripe.querySelectorAll('[data-eof-fill]'); for(var __i=0;__i<oldEOFs2.length;__i++){ oldEOFs2[__i].parentNode.removeChild(oldEOFs2[__i]); } }catch(_){ }
       var lastLineIdx = total - 1; if (lastLineIdx < 0) lastLineIdx = 0;
+      // EOF 判定拡張:
+      //  1) endLine >= total-1 （最終行が“次に出る”位置まで来ている）
+      //  2) caretLine が最終行（G 直後など）
+      // どちらかで EOF フィルを描画し、最下部緑帯欠落を避ける。
+  var _remainScroll = 0; try{ _remainScroll = (editor.scrollHeight - editor.clientHeight) - editor.scrollTop; if (_remainScroll < 0) _remainScroll = 0; }catch(_){ }
       if (endLine === total){
         var lastBottom = padTopInt + (lastLineIdx + 1 - startLine) * lhExact;
         if (lastBottom < 0) lastBottom = 0;
-  // 端数領域（行ロック時の lock 高さ外）が紫(gradientLineEnd) のまま残る問題を避けるため、常にコンテナ全高まで EOF 塗りを許可
-  var limitB = editor.clientHeight;
+  var limitB = (vpEl?_vpCalcHeight():editor.clientHeight);
         if (lastBottom < limitB){
-          var eofH = limitB - lastBottom; if (eofH < 0) eofH = 0;
-          frag.push('<div data-eof-fill="1" style="position:absolute;left:0;right:0;top:'+lastBottom+'px;height:'+eofH+'px;background:'+window.THEME.eofFillColor+';pointer-events:none;"></div>');
+          var dummyH2 = lhExact;
+          if (lastBottom + dummyH2 > limitB) dummyH2 = limitB - lastBottom;
+          if (dummyH2 > 0 && (total > (Math.floor(limitB / lhExact)))){
+            frag.push('<div data-eof-fill="1" style="position:absolute;left:0;right:0;top:'+lastBottom+'px;height:'+dummyH2+'px;background:'+window.THEME.eofFillColor+';pointer-events:none;"></div>');
+          }
         }
       }
     }catch(_){ }
     stripe.innerHTML = frag.join('');
   // offset は scrollTop % 行高 由来。padding の端数分も考慮して揺れを低減
-  try{ var _toff = transOffset; if(!window._noSnapGutter){ if (_toff < 0) _toff = Math.ceil(_toff); else _toff = Math.round(_toff); } stripe.style.transform = 'translateY('+_toff+'px)'; }catch(_){ }
+  try{
+    var _toff = transOffset;
+    if(!window._noSnapGutter){
+      if (Math.abs(_toff - Math.round(_toff)) > 0.45) _toff = Math.round(_toff);
+    }
+    stripe.style.transform = 'translateY('+_toff+'px)';
+  }catch(_){ }
   }
 }
 // ====== scrolloff（表示端からの余白スクロール） ======
@@ -2046,7 +2163,10 @@ function ensureScrolloff(editor){
         pos = (typeof editor.selectionEnd==='number') ? editor.selectionEnd : getCaret(editor);
       }
     var cursorLine = getLineCol(text,pos).line;
-    var clientH = editor.clientHeight;
+  var clientH = editor.clientHeight;
+  // viewport 高さ (整数行クリップ後) を優先利用
+  var vpEl = document.getElementById('editorViewport');
+  if (vpEl && vpEl.clientHeight && vpEl.clientHeight > 0){ clientH = vpEl.clientHeight; }
     // editor の padding-top / bottom を取得し実可視高さ判定に利用
     var stylePT=0, stylePB=0; try{ var cs=editor.currentStyle||window.getComputedStyle(editor); stylePT=parseFloat(cs.paddingTop)||0; stylePB=parseFloat(cs.paddingBottom)||0; }catch(_){ }
     var visibleH;
@@ -2060,7 +2180,8 @@ function ensureScrolloff(editor){
     visibleH -= stylePB; if (visibleH < lh) visibleH = lh;
     if (visibleH < lh) visibleH = lh;
   var curTop = editor.scrollTop;
-    var realMax = editor.scrollHeight - clientH;
+  var realMax = editor.scrollHeight - editor.clientHeight; // scrollHeight は textarea に対して計算される
+  if (realMax < 0) realMax = 0;
     if (realMax < 0) realMax = 0;
   var cursorTop    = (cursorLine - 1) * lh;
   var cursorBottom = cursorTop + lh;
@@ -2110,7 +2231,7 @@ function ensureScrolloff(editor){
             return;
           }
         }
-    if (isLastLine){
+  if (isLastLine){
       // 最終行でも scrolloff を考慮（満たせない場合は可能な範囲で）
       var viewBottom = curTop + visibleH;
       // 通常行と同じ式で「下側余白」を優先しつつ、境界でクランプ
@@ -2201,7 +2322,15 @@ function ensureScrolloff(editor){
         }
       }
       if (desiredTop < 0) desiredTop = 0; if (desiredTop > realMax) desiredTop = realMax;
-      editor.scrollTop = desiredTop;
+  editor.scrollTop = desiredTop;
+  try{ if(typeof window._scrolledThisFrame==='undefined') window._scrolledThisFrame=false; if((editor.scrollTop|0)!==(curTop|0)) window._scrolledThisFrame=true; }catch(_){ }
+      // 末行で残りスクロールが 1 行未満なら強制的に最終 scrollTop へ寄せて EOF 欠け防止
+      try{
+        if (cursorLine === total){
+          var remain = (editor.scrollHeight - editor.clientHeight) - editor.scrollTop;
+          if (remain > 0 && remain < lh * 0.95){ editor.scrollTop = editor.scrollHeight - editor.clientHeight; try{ if((editor.scrollTop|0)!==(curTop|0)) window._scrolledThisFrame=true; }catch(_){ } }
+        }
+      }catch(_){ }
     }
     // 追加: 最終行 (cursorLine==total) かつ scrolloff=0 のとき、scrollTop を行境界へ強制スナップし端数保持による “余計な半端スクロール” を排除
     try{
@@ -2789,24 +2918,126 @@ function runCommand(s){
       var prv=(typeof Buffers==='object'&&Buffers.prev>=0)?Buffers.list[Buffers.prev]:null;
       var curS=cur?('cur#'+cur.id+' s='+cur.selStart+' e='+cur.selEnd+' p='+cur.pos+' st='+cur.scrollTop):'cur: none';
       var prvS=prv?(' prev#'+prv.id+' s='+prv.selStart+' e='+prv.selEnd+' p='+prv.pos+' st='+prv.scrollTop):'';
-      var rt='ed sel=['+ (ed?ed.selectionStart:'-') +','+ (ed?ed.selectionEnd:'-') +'] caret='+ (ed?getCaret(ed):'-') +' st='+ (ed?ed.scrollTop:'-');
-      showMsg(curS+prvS+' | '+rt, true);
+      var caretVal = (ed?getCaret(ed):'-');
+      var stNow = (ed?ed.scrollTop:'-');
+      var lhDbg = 0; try{ lhDbg = getLineHeightPx(ed)||0; }catch(_){ }
+      var topFrac = (ed && lhDbg>0)? ((ed.scrollTop % lhDbg)/lhDbg).toFixed(3) : '-';
+      var rt='ed sel=['+ (ed?ed.selectionStart:'-') +','+ (ed?ed.selectionEnd:'-') +'] caret='+ caretVal +' st='+ stNow + ' topFrac='+topFrac;
+      // 既存 overlay 再利用
+      try{ var ex=document.getElementById('_debugScrollOverlay'); if(ex) ex.parentNode.removeChild(ex); }catch(_){ }
+      var ta=document.createElement('textarea'); ta.id='_debugScrollOverlay'; ta.style.position='fixed'; ta.style.left='8px'; ta.style.top='48px'; ta.style.zIndex=9999; ta.style.width='720px'; ta.style.height='90px'; ta.style.background='#111'; ta.style.color='#9f9'; ta.style.font='12px monospace'; ta.style.border='1px solid #393'; ta.value=curS+prvS+' | '+rt; document.body.appendChild(ta); try{ ta.select(); }catch(_){ }
       try{ if (ed && typeof updateStatus==='function') updateStatus(ed); }catch(_){ }
-    }catch(_){ showMsg('dbgpos error', 1200); }
+    }catch(_){ showMsg('dbgpos error',1200); }
+    return;
+  }
+  if (/^dbgeof$/i.test(s)){
+    closeCmdBar();
+    try{
+      var ed=document.getElementById('editor'); var stripe=document.getElementById('edstripe'); var gutter=document.getElementById('gutter'); var vp=document.getElementById('editorViewport');
+      var eofS = stripe?stripe.querySelectorAll('[data-eof-fill]').length:0;
+      var eofG = gutter?gutter.querySelectorAll('[data-eof-fill]').length:0;
+      var lh = getLineHeightPx(ed)||0; var vpH = vp?vp.clientHeight:0; var lines = lh? (vpH/lh):0;
+      var remainScroll = (ed?(ed.scrollHeight - ed.clientHeight - ed.scrollTop):0); if (remainScroll<0) remainScroll=0;
+      var msg = 'dbgeof stripeEOF='+eofS+' gutterEOF='+eofG+' vpH='+vpH+' lines='+lines.toFixed(3)+' lh='+lh.toFixed(2)+' remainScroll='+remainScroll;
+      try{ var ex=document.getElementById('_debugScrollOverlay'); if(ex) ex.parentNode.removeChild(ex); }catch(_){ }
+      var ta=document.createElement('textarea'); ta.id='_debugScrollOverlay'; ta.style.position='fixed'; ta.style.left='8px'; ta.style.top='48px'; ta.style.zIndex=9999; ta.style.width='560px'; ta.style.height='110px'; ta.style.background='#111'; ta.style.color='#9f9'; ta.style.font='12px monospace'; ta.style.border='1px solid #393'; ta.value=msg; document.body.appendChild(ta); try{ ta.select(); }catch(_){ }
+    }catch(_){ }
+    return;
+  }
+  if (/^dbgvh$/i.test(s)){
+    closeCmdBar();
+    try{
+      var vp=document.getElementById('editorViewport'); var ed=document.getElementById('editor');
+      var lh=getLineHeightPx(ed)||0; var ch=vp?vp.clientHeight:0; var sh=parseFloat((vp&&vp.style.height)||'0')||0; var rectH=0; try{ rectH = vp.getBoundingClientRect().height; }catch(_){ }
+      function fmt(n){ return (Math.round(n*1000)/1000); }
+      var linesClient = lh? ch/lh : 0; var linesStyle = lh? sh/lh : 0; var linesRect = lh? rectH/lh : 0;
+      var floorLines = lh? Math.floor(ch/lh):0; var floorH = floorLines*lh;
+      var extraClient = ch - floorH; var extraStyle = sh - floorH; var extraRect = rectH - floorH;
+  var _topFrac = (lh>0)? ((ed?ed.scrollTop%lh:0)/lh).toFixed(3) : '-';
+  var msg = 'dbgvh lh='+lh.toFixed(2)+' clientH='+ch+' styleH='+sh+' rectH='+fmt(rectH)+' linesClient='+linesClient.toFixed(3)+' linesStyle='+linesStyle.toFixed(3)+' linesRect='+linesRect.toFixed(3)+' floorLines='+floorLines+' extraClientPx='+fmt(extraClient)+' extraStylePx='+fmt(extraStyle)+' extraRectPx='+fmt(extraRect)+' topFrac='+_topFrac;
+      var ex=document.getElementById('_debugScrollOverlay'); if(ex) ex.parentNode.removeChild(ex);
+      var ta=document.createElement('textarea'); ta.id='_debugScrollOverlay'; ta.style.position='fixed'; ta.style.left='8px'; ta.style.top='48px'; ta.style.zIndex=9999; ta.style.width='640px'; ta.style.height='120px'; ta.style.background='#111'; ta.style.color='#9f9'; ta.style.font='12px monospace'; ta.style.border='1px solid #393'; ta.value=msg; document.body.appendChild(ta); ta.select();
+    }catch(_){ }
+    return;
+  }
+  if (/^fixvh$/i.test(s)){
+    closeCmdBar();
+    try{
+      var vp=document.getElementById('editorViewport'); var ed=document.getElementById('editor'); if(!vp||!ed){ showMsg('no vp',1000); return; }
+      var sh=parseFloat(vp.style.height||'0')||0; var ch=vp.clientHeight||0; if(!sh||!ch){ showMsg('no height',1000); return; }
+      var diff=ch - sh; if(diff>0.05){
+        // 高さを差分分だけ減算（ライン数 floor を維持するため lh の整数倍未満にしない）
+        var lh=getLineHeightPx(ed)||0; var floorLines = lh? Math.floor(sh/lh):0; var floorTarget = floorLines * lh;
+        // 目標は floorTarget か (sh - diff) の大きい方のうち floorTarget 以下
+        var newH = floorTarget>0? floorTarget : (sh - diff);
+        // 安全マージン: 余り再発を防ぐため 0.1px 引く
+        newH = Math.max(1, newH - 0.1);
+        vp.style.height = (Math.round(newH*100)/100)+'px';
+        // 再描画
+        try{ updateGutter(); ensureScrolloff(ed); if(window._refreshListLayer) _refreshListLayer(true); }catch(_){ }
+        showMsg('fixvh applied (diff='+diff.toFixed(3)+' -> '+vp.style.height+')',1400);
+      } else {
+        showMsg('fixvh: no diff ('+diff.toFixed(3)+'px)', 1200);
+      }
+    }catch(e){ showMsg('fixvh err', 1000); }
+    return;
+  }
+  if (/^dbgtime$/i.test(s)){
+    closeCmdBar();
+    try{
+      var t0 = window._tStart||0; var vpSet = window._tViewportSet||0; var firstPaint = window._tFirstPaint||0;
+      var now = Date.now();
+      var msg = 'dbgtime start=0ms viewportSet='+vpSet+'ms firstPaint='+firstPaint+'ms now='+(now - t0)+'ms';
+      var ex=document.getElementById('_debugScrollOverlay'); if(ex) ex.parentNode.removeChild(ex);
+      var ta=document.createElement('textarea'); ta.id='_debugScrollOverlay'; ta.style.position='fixed'; ta.style.left='8px'; ta.style.top='48px'; ta.style.zIndex=9999; ta.style.width='480px'; ta.style.height='80px'; ta.style.background='#111'; ta.style.color='#9f9'; ta.style.font='12px monospace'; ta.style.border='1px solid #393'; ta.value=msg; document.body.appendChild(ta); ta.select();
+    }catch(_){ }
     return;
   }
   if (/^debugscroll$/i.test(s)){
     closeCmdBar();
     var ed = document.getElementById('editor');
     var lh = getLineHeightPx(ed);
-    var ch = ed.clientHeight;
+    var vp = document.getElementById('editorViewport');
+  var vphClient = vp ? vp.clientHeight : ed.clientHeight;
+  var vphStyle = 0; try{ vphStyle = parseFloat(vp.style.height)||0; }catch(_){ }
+  var vphRect = 0; try{ vphRect = vp.getBoundingClientRect().height; }catch(_){ }
+  var vph = vphStyle>0 ? vphStyle : vphClient; // 優先: 明示指定値（行高 * 行数）
+    var ch = ed.clientHeight; // 旧: 実際の textarea clientHeight（viewport でクリップされない値）
     var sh = ed.scrollHeight;
-  var effH = ch; if (effH < lh) effH = lh;
     var tl = totalLines(ed.value);
-    var pos = getCaret(ed);
-    var line = getLineCol(ed.value,pos).line;
-    var maxST = sh - ch; if (maxST < 0) maxST = 0;
-    showMsg('lh='+lh+' ch='+ch+' sh='+sh+' effH='+effH+' scrollTop='+ed.scrollTop+' maxST='+maxST+' line='+line+'/'+tl, true);
+    var pos = getCaret(ed); var lc = getLineCol(ed.value,pos); var line = lc.line;
+    var maxST = sh - vph; if (maxST < 0) maxST = 0;
+    var tab = document.getElementById('tabbar'); var cmd=document.getElementById('cmdbar');
+    var tabH = tab?tab.offsetHeight:0; var cmdH=cmd?cmd.offsetHeight:0;
+    var lines = [];
+    lines.push('lineHeight='+lh.toFixed(2));
+  var rawLinesClient = (lh>0)?(vphClient/lh):0; var rawLinesStyle=(lh>0)?(vphStyle/lh):0; var rawLinesRect=(lh>0)?(vphRect/lh):0;
+  var floorLines = lh>0? Math.floor(vphClient/lh):0; var floorPx = (floorLines*lh).toFixed(2);
+  var extraClient = (vphClient - floorLines*lh).toFixed(3);
+  var extraStyle  = (vphStyle? (vphStyle - floorLines*lh):0).toFixed(3);
+  var extraRect   = (vphRect? (vphRect - floorLines*lh):0).toFixed(3);
+  lines.push('viewportHeight client='+vphClient+' style='+vphStyle+' rect='+vphRect.toFixed? vphRect.toFixed(2):vphRect);
+  lines.push('lines client='+rawLinesClient.toFixed(3)+' style='+ (rawLinesStyle?rawLinesStyle.toFixed(3):'0.000') +' rect='+ (rawLinesRect?rawLinesRect.toFixed(3):'0.000') +' floorLines='+floorLines+' floorHeightPx='+floorPx);
+  lines.push('extraPx client='+extraClient+' style='+extraStyle+' rect='+extraRect);
+    lines.push('textareaClientHeight='+ch);
+    lines.push('scrollHeight='+sh);
+    // start/end 可視範囲概算
+    try{
+      var startLine0 = Math.floor(ed.scrollTop / lh);
+      var topFrac = ed.scrollTop % lh;
+      var vis = Math.ceil((vph + topFrac) / lh);
+      var endLine0 = Math.min(tl, startLine0 + vis);
+      lines.push('startLine='+(startLine0+1)+' endLine='+endLine0+' total='+tl);
+    }catch(_){ }
+    lines.push('scrollTop='+ed.scrollTop+' maxScrollTop='+maxST);
+    lines.push('caretLine='+line+' / '+tl+' caretCol='+lc.col+' pos='+pos);
+    lines.push('TAB='+tabH+' CMD='+cmdH);
+    var ta=document.createElement('textarea');
+    ta.value=lines.join('\n');
+    ta.style.position='fixed'; ta.style.left='6px'; ta.style.top='30px'; ta.style.width='420px'; ta.style.height='170px';
+    ta.style.zIndex=9999; ta.style.background='#111'; ta.style.color='#ccc'; ta.style.fontSize='11px'; ta.style.fontFamily='monospace'; ta.setAttribute('data-dbgscroll','1');
+    document.body.appendChild(ta); try{ ta.focus(); ta.select(); }catch(_){ }
+    setTimeout(function(){ try{ var olds=document.querySelectorAll('textarea[data-dbgscroll]'); for(var i=0;i<olds.length;i++) olds[i].parentNode.removeChild(olds[i]); }catch(_){ } }, 15000);
     return;
   }
   if (/^dbgwidth!$/i.test(s)){
@@ -2877,6 +3108,21 @@ function runCommand(s){
       var remPx = (raw - Math.floor(raw)) * lhP;
       if (remPx < 0.5) visibleP = Math.floor(raw);
       visibleP = TEXTAREA_HEIGHT; // 最終的には固定
+  if (/^dbgeof$/i.test(s)){
+    closeCmdBar();
+    try{
+      var ed=document.getElementById('editor'); var stripe=document.getElementById('edstripe'); var gutter=document.getElementById('gutter'); var vp=document.getElementById('editorViewport');
+      var eofS = stripe?stripe.querySelectorAll('[data-eof-fill]').length:0;
+      var eofG = gutter?gutter.querySelectorAll('[data-eof-fill]').length:0;
+      var lh = getLineHeightPx(ed)||0; var vpH = vp?vp.clientHeight:0; var lines = lh? (vpH/lh):0;
+      var remainScroll = (ed?(ed.scrollHeight - ed.clientHeight - ed.scrollTop):0); if (remainScroll<0) remainScroll=0;
+      var msg = 'dbgeof stripeEOF='+eofS+' gutterEOF='+eofG+' vpH='+vpH+' lines='+lines.toFixed(3)+' lh='+lh.toFixed(2)+' remainScroll='+remainScroll;
+      // copyable overlay (debugscroll 同様)
+      try{ var ex=document.getElementById('_debugScrollOverlay'); if(ex) ex.parentNode.removeChild(ex); }catch(_){ }
+      var ta=document.createElement('textarea'); ta.id='_debugScrollOverlay'; ta.style.position='fixed'; ta.style.left='8px'; ta.style.top='48px'; ta.style.zIndex=9999; ta.style.width='560px'; ta.style.height='110px'; ta.style.background='#111'; ta.style.color='#9f9'; ta.style.font='12px monospace'; ta.style.border='1px solid #393'; ta.value=msg; document.body.appendChild(ta); try{ ta.select(); }catch(_){ }
+    }catch(_){ }
+    return;
+  }
     }
     var endLineP=startLineP+visibleP; if(endLineP>totalP) endLineP=totalP;
     var lines=[]; lines.push('lh='+lhP+' ch='+chP+' st='+st+' startLine='+(startLineP+1)+' visible='+visibleP+' endLine='+endLineP+' total='+totalP+' topFrac='+topFrac.toFixed(2));
@@ -3089,7 +3335,7 @@ function ensureWindowResizer(){
   setCaret(editor, 0);
   pushUndo('initial');
   setBaseline(editor.value);
-  updateStatus(editor); ensureScrolloff(editor); updateGutter();
+  _afterEditFrame();
   // 行番号ガターの初期表示
   updateGutter();
   // ステータスバー初期表示: 常時表示化につき display 操作を撤廃
@@ -3283,6 +3529,12 @@ function ensureWindowResizer(){
       handleMove(editor, targetPos, mode===MODE_VISUAL);
       // 明示再調整
       ensureScrolloff(editor);
+      // 最終行ジャンプ時にほぼ末尾なら強制的に最大 scroll へ寄せて EOF 判定を確実化
+      try{
+        var lhG = getLineHeightPx(editor);
+        var remainAfter = (editor.scrollHeight - editor.clientHeight) - editor.scrollTop;
+        if (line === tl && remainAfter < lhG * 1.2){ editor.scrollTop = Math.max(0, editor.scrollHeight - editor.clientHeight); }
+      }catch(_){ }
       gPending = false;
       return;
     }
@@ -3603,7 +3855,7 @@ function ensureWindowResizer(){
           try{ window._imeCommitPending = false; }catch(_){ }
           try{ window._imeCommittedFlag = false; }catch(_){ }
           try{ window._imeCommitV0 = ''; }catch(_){ }
-          updateStatus(editor); ensureScrolloff(editor); updateGutter();
+          _afterEditFrame();
           try{ window._lastInputTs = __now0; }catch(_){ }
           // pending を処理したら以降の通常処理は不要
           return;
@@ -3628,7 +3880,7 @@ function ensureWindowResizer(){
         var __mk=false; try{ __mk = !!window._imeCommitMarked; }catch(_){ __mk=false; }
         var __blk2=0; try{ __blk2 = window._imeCancelBlockUntil||0; }catch(_){ __blk2=0; }
   if (!__mk){ if (!(__blk2 && __now <= __blk2)) { modifiedCount++; updateModifiedFlag(); try{ window._imeCommitMarked = true; }catch(_){ } try{ if(window._imeDebug && typeof imeLog==='function'){ imeLog('[in:pending]'); } }catch(_){ } } }
-        updateStatus(editor); ensureScrolloff(editor); updateGutter();
+  _afterEditFrame();
         try{ window._imeCommitTs = __now; }catch(_){ }
         try{ window._imeCommitPending = false; }catch(_){ }
         try{ window._lastInputTs = __now; }catch(_){ }
@@ -3660,7 +3912,7 @@ function ensureWindowResizer(){
           var _kdTs=0, _kdIME=false; try{ _kdTs = window._lastKdTs||0; _kdIME = !!window._lastKdWasIME; }catch(_){ }
           if (_kdIME && __now - _kdTs < 300) return;
           modifiedCount++; updateModifiedFlag(); try{ if(window._imeDebug && typeof imeLog==='function'){ imeLog('[nonIME:delayed-mark]'); } }catch(_){ }
-          updateStatus(editor); ensureScrolloff(editor); updateGutter();
+          _afterEditFrame();
           try{ window._lastKdWasIME = false; }catch(_){ }
         }catch(_){ }
       }, 160);
@@ -3829,7 +4081,7 @@ function ensureWindowResizer(){
                 }
                 try{ window._imeCommitPending = false; }catch(_){ }
                 try{ window._imeCommittedFlag = false; }catch(_){ }
-                updateStatus(editor); ensureScrolloff(editor); updateGutter();
+                _afterEditFrame();
                 try{ if(window._imeDebug && typeof imeLog==='function'){ imeLog('[pc:mark]'); } }catch(_){ }
               }
             }
@@ -3907,7 +4159,7 @@ function ensureWindowResizer(){
             editor.value = snap.text;
             try{ if (editor.setSelectionRange) editor.setSelectionRange(snap.s, snap.s); else setCaret(editor, snap.s); }catch(_){ }
             try{ editor.scrollTop = snap.st|0; }catch(_){ }
-            updateStatus(editor); ensureScrolloff(editor); updateGutter();
+            _afterEditFrame();
             try{ if(window._imeDebug && typeof imeLog==='function'){ imeLog('[ce:diff]'); } }catch(_){ }
             window._edImeCancelled = false;
             try{ window._imeCancelRestoreTs = (new Date()).getTime(); }catch(_){ }
@@ -3930,7 +4182,7 @@ function ensureWindowResizer(){
             if (np < 0) np = 0; if (np > vNow.length) np = vNow.length;
             try{ if (editor.setSelectionRange) editor.setSelectionRange(np, np); else setCaret(editor, np); }catch(_){ }
             try{ editor.scrollTop = snap.st|0; }catch(_){ }
-            updateStatus(editor); ensureScrolloff(editor); updateGutter();
+            _afterEditFrame();
             // IME確定は即 modified 扱い。ただし直前に textinput 等で確定済みなら重複しない
             var __now = (new Date()).getTime();
             var __li = 0; try{ __li = window._imeCommitTs||0; }catch(_){ __li = 0; }
@@ -3942,7 +4194,7 @@ function ensureWindowResizer(){
             else if (!__done && !__mk && (!__li || (__now - __li) >= 120)){
               modifiedCount++; updateModifiedFlag();
               try{ window._imeCommitMarked = true; }catch(_){ }
-              try{ updateStatus(editor); ensureScrolloff(editor); updateGutter(); }catch(_){ }
+              try{ _afterEditFrame(); }catch(_){ }
             }
             try{ window._imeCommitTs = __now; }catch(_){ }
             try{ window._imeCommittedFlag = false; }catch(_){ }
@@ -3965,7 +4217,7 @@ function ensureWindowResizer(){
                   if (np2 < 0) np2 = 0; if (np2 > vN.length) np2 = vN.length;
                   try{ if (editor.setSelectionRange) editor.setSelectionRange(np2, np2); else setCaret(editor, np2); }catch(_){ }
                   try{ editor.scrollTop = snap.st|0; }catch(_){ }
-                  updateStatus(editor); ensureScrolloff(editor); updateGutter();
+                  _afterEditFrame();
                   try{ if(window._imeDebug && typeof imeLog==='function'){ imeLog('[retry]'); } }catch(_){ }
                   var __now2 = (new Date()).getTime();
                   var __li2 = 0; try{ __li2 = window._imeCommitTs||0; }catch(_){ __li2 = 0; }
@@ -3976,7 +4228,7 @@ function ensureWindowResizer(){
                   else if (!__done2 && !__mk2 && (!__li2 || (__now2 - __li2) >= 120)){
                     modifiedCount++; updateModifiedFlag();
                     try{ window._imeCommitMarked = true; }catch(_){ }
-                    try{ updateStatus(editor); ensureScrolloff(editor); updateGutter(); }catch(_){ }
+                    try{ _afterEditFrame(); }catch(_){ }
                   }
                   try{ window._imeCommitTs = __now2; }catch(_){ }
                   try{ window._imeCommitPending = false; }catch(_){ }
@@ -4010,7 +4262,7 @@ function ensureWindowResizer(){
   var mk=false; try{ mk = !!window._imeCommitMarked; }catch(_){ mk=false; }
   if (!done && !mk){ modifiedCount++; updateModifiedFlag(); try{ window._imeCommittedFlag = true; window._imeCommitMarked = true; }catch(_){ } }
         try{ window._imeCommitTs = (new Date()).getTime(); }catch(_){ }
-        updateStatus(editor); ensureScrolloff(editor); updateGutter();
+  _afterEditFrame();
       }catch(_){ }
     };
     try{ if (editor.addEventListener) editor.addEventListener('textinput', __onTextInputCommit, false); }catch(_){ }
@@ -4038,7 +4290,7 @@ function ensureWindowResizer(){
       editor.value = v.slice(0, s) + t + v.slice(en);
       var newPos = s + t.length;
       if (editor.setSelectionRange) editor.setSelectionRange(newPos, newPos);
-      updateStatus(editor); ensureScrolloff(editor); updateGutter();
+  _afterEditFrame();
     }
     // それ以外（安全のため既定も許可しない）
   });

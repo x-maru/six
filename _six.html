@@ -21,7 +21,7 @@
 </head>
 <body>
   <div id="pane">
-    <!-- 1. タブバー -->
+    <!-- 1. タブバー (行高=1.6rem に統一) -->
     <div id="tabbar">
       <button id="tabScrollLeft" title="前のタブ" onclick="try{scrollTabBar(-1);}catch(_){ }">&#x25C0;</button>
       <div id="tabsWrap"><div id="tabs"></div></div>
@@ -30,10 +30,13 @@
     <!-- 2. 本文 + コマンドバーラッパ (行ロック時の高さ計算を単純化) -->
     <div id="editWrap">
       <div id="editArea">
-        <div id="edstripe"></div>
-        <div id="gutter"></div>
-        <textarea id="editor" spellcheck="false" wrap="off"
+        <!-- viewport: 可視領域高さを行高整数倍にクリップ。内部は従来構造をそのまま包含 -->
+        <div id="editorViewport">
+          <div id="edstripe"></div>
+          <div id="gutter"></div>
+          <textarea id="editor" spellcheck="false" wrap="off"
           placeholder="ここにテキストを入力…&#10;NORMALでは h j k l / ←↓↑→ / w b / ^ 0 $ / gg G、行挿入 o/O、挿入 a/A、行頭 I。&#10;/ と ? で検索、n/N で次/前。&#10;i で INSERT、Esc で NORMAL。:w で保存、:help でヘルプ。"></textarea>
+        </div>
       </div>
       <div id="cmdbar" tabindex="0">
       <div id="cmdbarMain">

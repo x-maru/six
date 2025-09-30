@@ -15,10 +15,14 @@
   #editWrap { flex: 1 1 auto; display:flex; flex-direction:column; min-height:0; }
   #editArea { position: relative; flex: 1 1 auto; display: flex; align-items: stretch; overflow: hidden; min-height:0; }
   #editArea #gutter { flex: 0 0 auto; }
-  #editArea #editor { flex: 1 1 auto; }
+  /* viewport 導入後 edstripe/editor は editorViewport 内に移動 */
   #editArea #edstripe { position:absolute; left:0; right:0; top:0; bottom:0; }
+  #editorViewport { position:relative; flex:1 1 auto; overflow:hidden; display:flex; align-items:stretch; background:#eef3ee; }
+  #editorViewport #gutter { flex:0 0 auto; }
+  #editorViewport #edstripe { position:absolute; left:0; right:0; top:0; bottom:0; }
+  #editorViewport #editor { flex:1 1 auto; height:100%; }
   /* タブバー */
-  #tabbar { position: relative; flex: 0 0 auto; display: flex; align-items: stretch; height: 1.55rem; background: #27282b; border-bottom: 1px solid #3b3d42; font-size: 0.72rem; user-select: none; z-index: 10; }
+  #tabbar { position: relative; flex: 0 0 auto; display: flex; align-items: stretch; height: 1.6rem; background: #27282b; border-bottom: 1px solid #3b3d42; font-size: 0.72rem; user-select: none; z-index: 10; }
   /* ボタン色は THEME 適用時に JS が上書き。z-index を上げて下地とブレンドしないようにする */
   #tabbar button { background: #2e3033; color: #ccc; border: 0; padding: 0 0.4rem; cursor: pointer; font-size: 0.72rem; position: relative; z-index: 12; }
   #tabsWrap { position: relative; flex: 1 1 auto; overflow: hidden; z-index: 11; }
