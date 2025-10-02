@@ -15,6 +15,9 @@
 />
 <link rel="stylesheet" href="_six.css">
 <script>
+// スクロール停止時に scrollTop を行境界へ丸め込む（ホイール中の微妙な半行ズレを排除）
+var snapScrollStop = true; // スクロール停止時に scrollTop を行境界へ丸め込む（ジャンプ直後は抑止ロジックで別途回避）
+
   // :b{番号}（スペース無し）即時切替を有効化するフラグ（10バッファ以上では2桁入力で即時）
   window.ENABLE_BIMMEDIATE = true;
 </script>
@@ -168,7 +171,9 @@ var OPT = {
   fileformat: 'unix',    // v1は LF 固定 ('unix')。将来 'dos' なら CRLF 正規化へ
   clipboard: 'internal', // 'internal' or 'os'（y/d 実装時に反映）
   scrolloff: 99999, // 既定の scrolloff
-  list: true        // 既定で list ON（固定 listchars ）
+  list: true,       // 既定で list ON（固定 listchars ）
+  enableWheelDriftCalib: true, // ホイール停止後の TextRange ベース微調整 (動的行トップ補正) 既定 ON（ジャンプ直後は抑止）
+  driftSmoothAlpha: 0.55, // ドリフト補正イージング係数 (0<α<=1) 大きいほど即時追従
 };
 var TEXTAREA_WIDTH = 110;
 var TEXTAREA_HEIGHT = 32;
@@ -177,7 +182,7 @@ var TEXTAREA_HEIGHT = 32;
 // 動的変更は想定しないため単純なリテラル。run-command 側から参照。
 var THEME = {
   eofFillColor: 'gray'             // EOF 以降の塗り潰し
-   ,eofGutterFillColor: 'rgb(127,255,127)' // ガター側 EOF 端数行/余白塗り潰し（デバッグ用視認色）
+   ,eofGutterFillColor: 'rgb(127,255,127)' // ガター側 EOF 端数行/余白
   ,gradientLineStart: 'rgb(243,251,243)' // 行背景グラデーション開始色
   ,gradientLineEnd: 'rgb(237,243,237)'    // 行背景グラデーション終了色 (各行の下端色)
   ,lineBaseFill: 'rgb(245,249,245)'       // ストライプレイヤ (#edstripe) のベース塗りつぶし色。行の隙間/端数で gradientLineEnd が露出するのを避ける
@@ -187,6 +192,7 @@ var THEME = {
   ,gutterGradientEnd: 'rgb(219,227,219)'    // ガター行背景グラデーション終了色
   ,gutterActiveGradientStart: 'rgb(211,231,211)' // アクティブ行ガター開始色
   ,gutterActiveGradientEnd: 'rgb(195,215,195)'      // アクティブ行ガター終了色
+  ,gutterTextColor: 'rgb(63,63,63)'        // 非アクティブ行ガター文字色
   ,gutterActiveTextColor: 'rgb(143,31,95)'        // アクティブ行ガター文字色
   // 自前キャレット（色/パディング）
   ,caretGradientStart: 'rgba(255,0,0,1.0)'
@@ -211,12 +217,18 @@ var THEME = {
     ,fullwidthSpaceGlyph: '▢' // デフォルト字形 (U+25A2)。例: '□','␠','◻','◽','■' 等も可
     ,fullwidthSpaceFont: '"Segoe UI Symbol","Yu Gothic UI","Meiryo","MS Gothic",monospace' // 強調表示用フォントスタック
     ,fullwidthSpaceFontSizePct: 110 // 100=等倍。大きくしたい場合 110-125 程度（行高クリップ注意）
+    ,bodyBGColor: 'green' // 追加: body 背景色（CSS の固定色を上書き）
 };
-OPT.scrolloff=0;
+OPT.scrolloff=2;
 THEME.eofFillColor = 'yellow';
+THEME.eofGutterFillColor = 'pink';
 THEME.gradientLineEnd = 'purple';
+THEME.gutterGradientEnd = 'deepSkyBlue';
 THEME.lineBaseFill = 'orange';
-THEME.gutterGradientEnd = 'brown';
+//  #editorViewport { background: darkcyan} ※_six.cssで定義
+
+// body 背景を THEME から適用（HTA/IE11 なので単純な直接代入で可）
+try{ if(THEME.bodyBGColor){ document.body.style.background = THEME.bodyBGColor; } }catch(_){ }
 
   </script>
 

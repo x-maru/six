@@ -17,7 +17,8 @@
   #editArea #gutter { flex: 0 0 auto; }
   /* viewport 導入後 edstripe/editor は editorViewport 内に移動 */
   #editArea #edstripe { position:absolute; left:0; right:0; top:0; bottom:0; }
-  #editorViewport { position:relative; flex:1 1 auto; overflow:hidden; display:flex; align-items:stretch; background:#eef3ee; }
+  /* 横スクロールバーを可視化するため X を auto にし、縦は内部 textarea に任せつつ親は隠す */
+  #editorViewport { position:relative; flex:1 1 auto; overflow-x:auto; overflow-y:hidden; display:flex; align-items:stretch; background:#eef3ee; }
   #editorViewport #gutter { flex:0 0 auto; }
   #editorViewport #edstripe { position:absolute; left:0; right:0; top:0; bottom:0; }
   #editorViewport #editor { flex:1 1 auto; height:100%; }
@@ -125,7 +126,7 @@
     position: static;
     box-sizing: border-box;
     /* 位置補正: 上に0.2rem 左に0.8remずれて見える報告 → 下/右へシフト */
-  padding: 0.2rem 0 1.6rem 0.8rem; /* 下に1行分の余白(EOF視認用) */
+  padding: 0.2rem 0 0 0.8rem; /* 下余白は JS (HSCROLL_RESERVE) 側で扱う; ズレ防止 */
     background: transparent;
     color: rgb(0,15,0);
     outline: none;
@@ -138,8 +139,8 @@
     min-width: 0;
   /* 行ロック時に JS から高さを直接指定。通常時は flex 内で自動伸長 */
   height: auto;
-    overflow-x: auto; /* wrap=off 時に長い行で水平スクロール */
-    overflow-y: auto;
+  overflow-x: auto; /* 水平スクロールバーは textarea 自身で表示 */
+  overflow-y: auto;
     flex: 1 1 auto;
   }
   /* IE/MSHTML 対策: ネイティブキャレットを隠すためのクラス（テキストは text-shadow で表示） */
@@ -171,3 +172,4 @@
   #winresizer:before{ content:''; position:absolute; right:0; bottom:0; width:0; height:0;
     border-right:14px solid #666; border-top:14px solid transparent; opacity:.5; }
   #winresizer:hover:before{ border-right-color:#aaa; opacity:.8; }
+  #editorViewport { background: darkcyan}
