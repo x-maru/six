@@ -5,19 +5,25 @@
   html, body {
     height: 100%;
     margin: 0;
-    background: #1e1f22;
+    background: rgb(0,255,0); /* DEBUG original:#1e1f22 */
     color: #ddd;
     font-family: "Cascadia Code", "Consolas", "游ゴシック Light", "Yu Gothic", "Meiryo", "MS Gothic", monospace;
     overflow: hidden; /* 外側の縦スクロールを抑止 */
   }
   #pane { display: flex; height: 100%; overflow: hidden; flex-direction: column; }
   /* 編集領域（ガター+エディタ+オーバーレイ） */
-  #editArea { position: relative; flex: 1 1 auto; display: flex; align-items: stretch; overflow: hidden; }
+  #editWrap { flex: 1 1 auto; display:flex; flex-direction:column; min-height:0; }
+  #editArea { position: relative; flex: 1 1 auto; display: flex; align-items: stretch; overflow: hidden; min-height:0; }
   #editArea #gutter { flex: 0 0 auto; }
-  #editArea #editor { flex: 1 1 auto; }
+  /* viewport 導入後 edstripe/editor は editorViewport 内に移動 */
   #editArea #edstripe { position:absolute; left:0; right:0; top:0; bottom:0; }
+  /* 横スクロールバーを可視化するため X を auto にし、縦は内部 textarea に任せつつ親は隠す */
+  #editorViewport { position:relative; flex:1 1 auto; overflow-x:auto; overflow-y:hidden; display:flex; align-items:stretch; background:#eef3ee; }
+  #editorViewport #gutter { flex:0 0 auto; }
+  #editorViewport #edstripe { position:absolute; left:0; right:0; top:0; bottom:0; }
+  #editorViewport #editor { flex:1 1 auto; height:100%; }
   /* タブバー */
-  #tabbar { position: relative; flex: 0 0 auto; display: flex; align-items: stretch; height: 1.55rem; background: #27282b; border-bottom: 1px solid #3b3d42; font-size: 0.72rem; user-select: none; z-index: 10; }
+  #tabbar { position: relative; flex: 0 0 auto; display: flex; align-items: stretch; height: 1.6rem; background: #27282b; border-bottom: 1px solid #3b3d42; font-size: 0.72rem; user-select: none; z-index: 10; }
   /* ボタン色は THEME 適用時に JS が上書き。z-index を上げて下地とブレンドしないようにする */
   #tabbar button { background: #2e3033; color: #ccc; border: 0; padding: 0 0.4rem; cursor: pointer; font-size: 0.72rem; position: relative; z-index: 12; }
   #tabsWrap { position: relative; flex: 1 1 auto; overflow: hidden; z-index: 11; }
@@ -55,40 +61,12 @@
   #gutter .ln { height: auto; }
   /* 本文 (#editor) 初期版は absolute + padding-left でガターと重複していたため削除・統合 */
   /* コマンドバー（:） */
-  #cmdbar {
-    position: absolute; left: 0; right: 0; bottom: 0;
-    height: 3.6rem;
-    background: #222; color: #fff;
-    border-top: 1px solid #3b3d42; font-size: 0.78rem;
-  display: flex; flex-direction: column; z-index: 50;
-  }
-  #statusline1 {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    height: 28px;
-    overflow: hidden;
-  }
-  #filename, #modmark, #mode, #pos {
-    flex: 0 0 auto;
-    min-width: 80px;
-    max-width: 320px; /* ファイル名の見切れを緩和 */
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  /* ファイル名は余裕があればもう少し広がれるように */
-  #filename { max-width: 40%; }
-  /* pos は桁数が増えるので広がれるようにする */
-  #pos { flex: 1 1 auto; min-width: 140px; max-width: none; text-align: right; }
-  #hint {
-    flex: 1 1 auto;
-    text-align: center;
-    min-width: 120px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  #cmdbar { flex: 0 0 auto; background:#222; color:#fff; border-top:1px solid #3b3d42; font-size:0.78rem; z-index:50; }
+  #cmdbarMain { display:flex; align-items:center; height:1.55rem; padding:0 0.4rem; gap:0.6rem; }
+  #cmdbarMain #mode { min-width:4.2rem; }
+  #cmdbarMain #pos { flex:0 0 auto; min-width:10rem; text-align:left; }
+  #helpHint { margin-left:auto; opacity:0.8; font-size:0.72rem; }
+  /* 末尾余白は個別要素ではなく textarea の下部パディングで確保 */
   #cmdprefix, #cmdline {
     position: static;
     font-size: 0.78rem;
@@ -101,8 +79,9 @@
     display: inline-block;
     vertical-align: middle;
   }
+  #cmdlineWrap { position:relative; flex:1 1 auto; max-width:42rem; display:flex; align-items:center; }
   #cmdline {
-    width: calc(100% - 1.8rem);
+    flex:1 1 auto; max-width:40rem;
     padding: 0.22rem 0.66rem;
     border: 1px solid #3b3d42;
     color: #fff;
@@ -111,23 +90,21 @@
     font-family: inherit;
     margin-left: 0;
     margin-right: 0;
-    display: none;
+    display: inline-block; /* 常時表示 */
     height: 1.55rem;
   }
-  #cmdmsg {
-    display: none;
-    position: absolute;
-    left: 0; top: 0; width: 100%; height: 100%;
-    background: #232323; color: #ffd;
-    font-size: 0.78rem;
-    padding: 0.22rem 0.66rem;
-    box-sizing: border-box;
-    border-radius: 0.22rem;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    z-index: 12;
-    height: 1.55rem;
+  #cmdmsg.in-cmd {
+    position:absolute; left:0; top:0; right:0; bottom:0;
+    display:none;
+    padding: 0.22rem 0.66rem; /* input と揃える */
+    line-height:1.11rem; /* 高さ内で中央近く */
+    font-size:0.75rem;
+    color:#ffd;
+    background:rgba(35,35,35,0.85);
+    box-sizing:border-box;
+    pointer-events:none;
+    overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+    border:none; border-radius:0;
   }
   /* ヘルプオーバーレイ */
   #help {
@@ -149,7 +126,7 @@
     position: static;
     box-sizing: border-box;
     /* 位置補正: 上に0.2rem 左に0.8remずれて見える報告 → 下/右へシフト */
-    padding: 0.2rem 0 0 0.8rem; 
+  padding: 0.2rem 0 0 0.8rem; /* 下余白は JS (HSCROLL_RESERVE) 側で扱う; ズレ防止 */
     background: transparent;
     color: rgb(0,15,0);
     outline: none;
@@ -160,9 +137,10 @@
     z-index: 1;
     width: 100%;
     min-width: 0;
-    height: 100%;
-    overflow-x: auto; /* wrap=off 時に長い行で水平スクロール */
-    overflow-y: auto;
+  /* 行ロック時に JS から高さを直接指定。通常時は flex 内で自動伸長 */
+  height: auto;
+  overflow-x: auto; /* 水平スクロールバーは textarea 自身で表示 */
+  overflow-y: auto;
     flex: 1 1 auto;
   }
   /* IE/MSHTML 対策: ネイティブキャレットを隠すためのクラス（テキストは text-shadow で表示） */
@@ -188,32 +166,10 @@
   #helpFooter button { margin-left:auto; }
   #helpScroll:focus { outline:none; }
   /* ちょいメッセージ（右下トースト） */
-  #msg {
-    position: absolute; left: 50%; bottom: 0.66rem; transform: translateX(-50%); z-index: 60;
-    background: #2b2d31; border: 1px solid #3b3d42; color: #ddd;
-    padding: 0.33rem 0.55rem; border-radius: 0.22rem; font-size: 0.67rem; display: none;
-    pointer-events: none;
-  }
-  /* ステータスバー */
-  #statusbar {
-    position: absolute; left: 0; right: 0; bottom: 0;
-    height: 1.55rem; background: #222; color: #fff;
-    border-top: 1px solid #3b3d42; font-size: 0.78rem;
-    display: flex; align-items: center; padding-left: 0.66rem; z-index: 10;
-  }
-  #statusline2 {
-    width: 100%;
-    height: 1.55rem;
-    border-top: 0.11rem solid #555;
-    background: #232323;
-    position: relative;
-  z-index: 51;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
+  #cmdmsg { display:none; background:#232323; color:#fff; font-size:0.72rem; padding:0.11rem 0.5rem; }
   /* 右下リサイズハンドル（IE9でもドラッグで window.resizeBy） */
   #winresizer{ position:absolute; right:6px; bottom:34px; width:14px; height:14px; cursor:se-resize; z-index:50; }
   #winresizer:before{ content:''; position:absolute; right:0; bottom:0; width:0; height:0;
     border-right:14px solid #666; border-top:14px solid transparent; opacity:.5; }
   #winresizer:hover:before{ border-right-color:#aaa; opacity:.8; }
+  #editorViewport { background: darkcyan}

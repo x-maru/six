@@ -48,3 +48,23 @@
   }catch(_){ }
 })();
 
+// 起動直後 list オーバーレイが初回操作まで描画されない問題への対処:
+// editor レイアウト確定後に複数回強制描画 (TextRange が安定するまで再試行)
+(function(){
+  try{
+    var tries=0;
+    function kick(){
+      tries++;
+      try{
+        if(window.OPT && OPT.list && typeof window.scheduleListLayerRender==='function'){
+          // force=true で即時描画（queue を待たない）
+          try{ window.scheduleListLayerRender(true); }catch(_){ }
+          // TextRange 位置がまだ不安定なら次のフレームでもう一度
+        }
+      }catch(_){ }
+      if(tries<5){ setTimeout(kick, tries===1?40:(tries===2?90:160)); }
+    }
+    setTimeout(kick, 20); // editor 初期化完了後すぐ
+  }catch(_){ }
+})();
+

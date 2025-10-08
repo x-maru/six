@@ -225,10 +225,107 @@
 				// イベントで再配置
 				try{
 					var ed = document.getElementById('editor');
-					if (ed){
-						var rerender = function(){ try{ _repositionCaret(); }catch(_){ } try{ _refreshListLayer(); }catch(_){ } };
-						if (ed.addEventListener){ ed.addEventListener('scroll', rerender); ed.addEventListener('input', rerender); ed.addEventListener('keyup', rerender); ed.addEventListener('click', rerender); }
-						else if (ed.attachEvent){ ed.attachEvent('onscroll', rerender); ed.attachEvent('oninput', rerender); ed.attachEvent('onkeyup', rerender); ed.attachEvent('onclick', rerender); }
+						if (ed){
+							var rerender = function(){ try{ _repositionCaret(); }catch(_){ } try{ _refreshListLayer(); }catch(_){ } try{ if(typeof updateGutter==='function') updateGutter(); }catch(_){ } };
+							if (ed.addEventListener){
+								ed.addEventListener('scroll', rerender);
+								ed.addEventListener('input', rerender);
+								ed.addEventListener('keyup', rerender);
+								ed.addEventListener('click', rerender);
+								// スクロール終了デバウンス（ホイール/ドラッグ）: 非同期で最終アライメント
+								if(!window._wheelStopDebounceAttached){
+									window._wheelStopDebounceAttached = true;
+									var _wheelTimer=null, _lastScrollTop=-1, _lastScrollAt=0;
+									var doAlign=function(){
+										// 任意: 停止時 scrollTop 行境界スナップ
+										try{
+											if(snapScrollStop){
+												var edSnap=document.getElementById('editor'); if(edSnap){
+													var lhSnap=(typeof getLineHeightPx==='function')?getLineHeightPx(edSnap):0; if(lhSnap>0){
+														var raw=edSnap.scrollTop; var nearest=Math.round(raw / lhSnap) * lhSnap;
+														if(Math.abs(nearest-raw) > 0.4){ edSnap.scrollTop = nearest; }
+													}
+												}
+											}
+										}catch(_){ }
+											// TextRange 実測でガター/stripe の行トップ校正 (恒常的ズレ補正)
+											try{
+												if(!window.OPT || !OPT.enableWheelDriftCalib) throw 1; // 無効化時は計算スキップ
+												if(window._suppressDriftOnce){ window._suppressDriftOnce=false; throw 1; }
+												if(window._jumpingNow && (+new Date()-window._jumpingNow)<160){ throw 1; }
+											var ed3=document.getElementById('editor'); if(ed3 && ed3.createTextRange){
+												var text=String(ed3.value||'');
+												var lhNow=(typeof getLineHeightPx==='function')?getLineHeightPx(ed3):0; if(!(lhNow>0)) lhNow=1;
+												var sm=(typeof getScrollMetrics==='function')?getScrollMetrics():{startLine:Math.floor(ed3.scrollTop/lhNow),lineOffsetPx:ed3.scrollTop%lhNow};
+												var padT=0,borT=0; try{ var cs=ed3.currentStyle||(window.getComputedStyle?getComputedStyle(ed3,null):null); padT=parseFloat(cs.paddingTop)||0; borT=parseFloat(cs.borderTopWidth)||0; }catch(_){ }
+												var rEd=ed3.getBoundingClientRect();
+												// 対象: caret 行と可視先頭行 (raw startLine)
+												var linesToCheck=[];
+												try{ var posCur=(typeof ed3.selectionEnd==='number')?ed3.selectionEnd:0; var lcCur=getLineCol(text,posCur); linesToCheck.push(lcCur.line); }catch(_){ }
+												linesToCheck.push(sm.startLine+1);
+												var diffs=[];
+												for(var li=0; li<linesToCheck.length; li++){
+													var L=linesToCheck[li]; if(!(L>0)) continue;
+													var lineStartAbs=(typeof lineStartByNumber==='function')?lineStartByNumber(text,L):0; if(lineStartAbs<0) continue;
+													var tr=ed3.createTextRange(); tr.collapse(true); tr.move('character', lineStartAbs); var rc=tr.getBoundingClientRect(); if(!rc||!isFinite(rc.top)) continue;
+													var theoretical = rEd.top + borT + padT + (L-1)*lhNow - (sm.startLine*lhNow + sm.lineOffsetPx);
+													var diff = rc.top - theoretical; if(Math.abs(diff) < lhNow) diffs.push(diff);
+												}
+													if(diffs.length){
+														var sum=0; for(var di=0;di<diffs.length;di++) sum+=diffs[di];
+														var target = sum/diffs.length;
+														if(!isFinite(target)) target=0;
+														if(Math.abs(target) > lhNow){ target=0; }
+														var prev = window._lineTopFudge||0;
+														// 線形補間で急激なジャンプを抑制 (0.35: 調整係数)
+														var alpha = (window.OPT && typeof OPT.driftSmoothAlpha==='number')?OPT.driftSmoothAlpha:0.35;
+														if(!(alpha>0 && alpha<=1)) alpha=0.35;
+														var next = prev + (target - prev)*alpha;
+														// 端数 <0.05px は 0 に寄せる（IE レンダラ抖動対策）
+														if(Math.abs(next) < 0.05) next = 0;
+														window._lineTopFudge = next;
+														window._lastLineTopFudgeRaw = target;
+													}
+											}
+										}catch(_){ }
+										try{ if(typeof updateGutter==='function') updateGutter(); }catch(_){ }
+										try{ _repositionCaret(); }catch(_){ }
+										try{ _refreshListLayer(); }catch(_){ }
+									};
+									var schedule=function(){
+										if(_wheelTimer) clearTimeout(_wheelTimer);
+										_wheelTimer=setTimeout(function(){
+											// スクロール位置が一定時間変化していなければ停止とみなす
+											var ed2=document.getElementById('editor');
+											if(ed2){
+												var st=ed2.scrollTop; var now=+new Date();
+												if(st===_lastScrollTop && now-_lastScrollAt>=110){
+													// 連続2フレームでも停止確認 (安全側)
+													var frameChecks=0, lastTopCheck=st;
+													var rafCheck=function(){
+														var ed3=document.getElementById('editor'); if(!ed3){ doAlign(); return; }
+														if(ed3.scrollTop!==lastTopCheck){ return; }
+														frameChecks++;
+														if(frameChecks>=2){ doAlign(); return; }
+														if(window.requestAnimationFrame) requestAnimationFrame(rafCheck); else setTimeout(rafCheck,16);
+													};
+													if(window.requestAnimationFrame) requestAnimationFrame(rafCheck); else setTimeout(rafCheck,16);
+												}
+											}
+										}, 120); // 直近変化後 120ms
+									};
+										ed.addEventListener('scroll', function(){
+										var st=ed.scrollTop; _lastScrollTop=st; _lastScrollAt=+new Date(); schedule();
+											if(!window._wheelStarted){ window._wheelStarted=true; window._suppressDriftOnce=true; }
+									});
+									// wheel / mouseup / keyup でも停止判定を後追い
+									var passive=false; try{ passive=!!window.addEventListener; }catch(_){ }
+									ed.addEventListener('wheel', schedule, passive?{passive:true}:false);
+									ed.addEventListener('mouseup', schedule, false);
+									ed.addEventListener('keyup', schedule, false);
+								}
+							}
+							else if (ed.attachEvent){ ed.attachEvent('onscroll', rerender); ed.attachEvent('oninput', rerender); ed.attachEvent('onkeyup', rerender); ed.attachEvent('onclick', rerender); }
 						if (window.addEventListener) window.addEventListener('resize', rerender);
 					}
 				}catch(_){ }
@@ -266,10 +363,13 @@
 						}
 					}catch(_){ rc = null; }
 					var left, top;
-					if (rc && isFinite(rc.left) && isFinite(rc.top)){
-						left = rc.left; top = rc.top;
-					} else {
-						// フォールバック: 可視列（タブ/全角を考慮）から算出
+						// 横位置は TextRange (rc) 優先。縦位置は常に共通メトリクス式 + キャリブレーションfudge を使用し統一。
+						if (rc && isFinite(rc.left)){
+							left = rc.left;
+						}
+						// フォールバック or rc なし時の left 計算
+						if (left == null){
+							// 可視列（タブ/全角を考慮）から算出
 						var lc = (typeof getLineCol==='function') ? getLineCol(text, pos) : {line:1,col:1};
 						var lineStart = (typeof lineStartByNumber==='function') ? lineStartByNumber(text, lc.line) : 0;
 						var prefix = text.slice(lineStart, Math.max(lineStart, Math.min(text.length, lineStart + lc.col - 1)));
@@ -292,8 +392,28 @@
 							borT = parseFloat((cs && (cs.borderTopWidth  || cs['border-top-width']))  || 0); if(!isFinite(borT)) borT = ed.clientTop ||0;
 						}catch(_){ borL = ed.clientLeft||0; borT = ed.clientTop||0; }
 						left = r.left + borL + padL + Math.floor(cols * cw + 0.01) - ed.scrollLeft;
-						top  = r.top  + borT + padT + (lc.line - 1) * lh - ed.scrollTop;
-					}
+						}
+						// 共通: 行/スクロールメトリクス取得
+						var lc2 = (typeof getLineCol==='function') ? getLineCol(text, pos) : {line:1,col:1};
+						var sm = (typeof getScrollMetrics==='function') ? getScrollMetrics() : {startLine:Math.floor(ed.scrollTop/(lh||1)), lineOffsetPx:ed.scrollTop%(lh||1)};
+						var baseScrollPx = sm.startLine * lh + sm.lineOffsetPx; // scrollTop と等価
+							var baseFudgeAll = (window._baselineLineDelta||0) + ((window.OPT && OPT.enableWheelDriftCalib)?(window._lineTopFudge||0):0);
+						var topCandidate = r.top + borT + padT + (lc2.line - 1)*lh - baseScrollPx + baseFudgeAll;
+						// 初回キャリブレーション: scrollTop=0 & caret=0 で TextRange が得られ、差分がほぼ1行なら fudge 登録
+						try{
+							if (window._caretLineFudge == null && (ed.scrollTop|0) === 0 && pos === 0 && rc && isFinite(rc.top)){
+								var diff = rc.top - topCandidate;
+								if (lh>0){
+									var linesOff = diff / lh;
+									if (Math.abs(linesOff - 1) < 0.25){ window._caretLineFudge = lh; }
+									else if (Math.abs(linesOff + 1) < 0.25){ window._caretLineFudge = -lh; }
+									else if (Math.abs(diff) < 2){ window._caretLineFudge = diff; } // 微少差分(1-2px)なら直接採用
+									else { window._caretLineFudge = 0; }
+								}
+							}
+						}catch(_){ }
+						var fudge = window._caretLineFudge||0;
+						top = topCandidate + fudge;
 					// 左→右 赤グラデーション（不透明→半透明）、上下は rem ベース padding
 					var gs = (window.THEME && THEME.caretGradientStart) ? THEME.caretGradientStart : 'rgba(255,0,0,1.0)';
 					var ge = (window.THEME && THEME.caretGradientEnd)   ? THEME.caretGradientEnd   : 'rgba(255,0,0,0.1)';
