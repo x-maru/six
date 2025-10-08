@@ -2407,7 +2407,22 @@ function updateGutter() {
       // 部分行判定（下端欠け）: ただし今回は行番号優先のため配色変更しない
       var overflowPx = lineBottomG - viewBottomPx; // >0 で欠け
       var isPartial = (overflowPx > 0.6 && overflowPx < lhExact);
-      var bg = 'background:linear-gradient(to bottom,'+sCol+','+eCol+');';
+      var bg;
+      if (isPartial){
+        // 最下端で欠けている部分表示行は eofGutterFillColor を用いた単色 (又はグラデーション終端色) で塗る
+        var eofColPartial = eofFillColor || (window.THEME && (THEME.gutterGradientEnd||THEME.gradientLineEnd)) || eCol;
+        // 暗すぎる場合は軽く明度補正 (簡易)
+        try{
+          var mpc = (''+eofColPartial).match(/(\d+)[^\d]+(\d+)[^\d]+(\d+)/);
+          if(mpc){
+            var lumP = ((+mpc[1])+(+mpc[2])+(+mpc[3]))/3;
+            if(lumP < 32){ eofColPartial = 'rgb('+(+mpc[1]+32)+','+(+mpc[2]+32)+','+(+mpc[3]+32)+')'; }
+          }
+        }catch(__){}
+        bg = 'background:'+eofColPartial+';';
+      } else {
+        bg = 'background:linear-gradient(to bottom,'+sCol+','+eCol+');';
+      }
       html.push('<div class="ln'+(isPartial?' partial':'')+'" style="height:'+lhExact+'px;line-height:'+lhExact+'px;'+bg+extra+'padding-right:0.45rem;">'+ln+'</div>');
       if (lineBottomG > _gMaxBottom) _gMaxBottom = lineBottomG;
       lastRenderedLine = ln;
@@ -2724,6 +2739,9 @@ function getScrolloff(){
 }
 function ensureScrolloff(editor){
   try{
+    // 連続上下での微小逆方向スクロール (バウンス) 抑制用メモ
+    if(typeof window._lastAutoScrollTop==='undefined') window._lastAutoScrollTop = editor.scrollTop|0;
+    if(typeof window._lastAutoScrollDir==='undefined') window._lastAutoScrollDir = 0; // 1=down, -1=up
     // ワンショット抑止（/:? 閉じや Esc 取消直後の強制スクロールを回避）
     if (window._suppressScrolloffOnce) { window._suppressScrolloffOnce = false; return; }
     // ワンショット抑止（/:? 閉じや Esc 取消直後の強制スクロールを回避）
@@ -2779,6 +2797,18 @@ function ensureScrolloff(editor){
     var upMarginPx   = scrolloffLines * lh;
     var downMarginPx = scrolloffLines * lh;
     var isLastLine = (cursorLine === total);
+    // --- 早期判定: 既に scrolloff 余白条件を満たしているなら何もしない（多重補正によるバウンス防止） ---
+    try{
+      if (!isLastLine){
+        var viewBottomEarly = curTop + visibleH;
+        var inUpper = (cursorTop - upMarginPx) >= curTop - 0.25; // 0.25px 許容
+        var inLower = (cursorBottom + downMarginPx) <= viewBottomEarly + 0.25;
+        if (inUpper && inLower){
+          // 直前フレームでスクロール済みの場合でも二重スクロール抑止
+          return;
+        }
+      }
+    }catch(_){ }
         /* PATCH:center scrolloff (vim-9999) */
         var visLines = Math.max(1, Math.ceil(visibleH / lh));
         var centerThreshold = Math.floor((visLines - 1) / 2);
@@ -2884,22 +2914,7 @@ function ensureScrolloff(editor){
       if (desiredTop < 0) desiredTop = 0;
       if (desiredTop > realMax) desiredTop = realMax;
 
-      // 追加: 下側余白行数不足を直接評価し不足分だけ 1 行単位でスクロール（計算誤差で margin 判定を取り逃すケース防止）
-      try{
-        if (scrolloffLines > 0){
-          var rawBelowPx = (curTop + visibleH) - cursorBottom;
-          var belowLines = (rawBelowPx > 0 && lh>0) ? Math.floor(rawBelowPx / lh) : 0;
-          if (belowLines < scrolloffLines){
-            // 既に desiredTop が十分進んでいる (>= curTop + lh) 場合は二重補正を避ける
-            if (desiredTop < curTop + lh * 0.5){
-              var needLines = scrolloffLines - belowLines;
-              var forceTop = curTop + needLines * lh;
-              if (forceTop > realMax) forceTop = realMax;
-              if (forceTop > desiredTop) desiredTop = forceTop;
-            }
-          }
-        }
-      }catch(_){ }
+      // （簡略化）下側余白直接評価ロジックは過剰スクロール/バウンス原因となるため無効化（上記早期判定で十分）
 
       // --- 追加: scrolloff=0 でも "カーソルが末尾フル行を占有" した瞬間に 1 行先行でスクロール (Vim より早め) ---
       try{
@@ -2917,6 +2932,22 @@ function ensureScrolloff(editor){
       }catch(_){ }
     }
     var delta = desiredTop - curTop;
+    // 方向判定 (delta 基準)。極小は 0 とみなす
+    var dirInt = 0; if (delta > 0.4) dirInt = 1; else if (delta < -0.4) dirInt = -1;
+    // 直前に逆方向へ自動スクロールした直後で、移動量が 1 行未満かつ scrolloff 境界内の場合は抑止
+    try{
+      if(dirInt!==0 && window._lastAutoScrollDir!==0 && dirInt !== window._lastAutoScrollDir){
+        // scrolloff マージン内判定
+        var upMarginPxChk = upMarginPx, downMarginPxChk = downMarginPx;
+        var viewBottomChk = curTop + visibleH;
+        var safeUpper = (cursorTop - upMarginPxChk) >= curTop - 0.25;
+        var safeLower = (cursorBottom + downMarginPxChk) <= viewBottomChk + 0.25;
+        if (safeUpper && safeLower && Math.abs(delta) < lh * 1.05){
+          // バウンスとみなして抑止
+          return;
+        }
+      }
+    }catch(_){ }
     // --- 追加: カーソル行が最下端で部分表示 (可視残高 < 行高) の場合は 1 行分スクロールして全表示確保 ---
     try{
       if (getScrolloff()===0 && cursorLine < total){
@@ -2958,6 +2989,7 @@ function ensureScrolloff(editor){
       }
       if (desiredTop < 0) desiredTop = 0; if (desiredTop > realMax) desiredTop = realMax;
   editor.scrollTop = desiredTop;
+  try{ window._lastAutoScrollTop = desiredTop|0; if(dirInt!==0) window._lastAutoScrollDir = dirInt; }catch(_){ }
   try{ if(typeof window._scrolledThisFrame==='undefined') window._scrolledThisFrame=false; if((editor.scrollTop|0)!==(curTop|0)) window._scrolledThisFrame=true; }catch(_){ }
       // 末行で残りスクロールが 1 行未満なら強制的に最終 scrollTop へ寄せて EOF 欠け防止
       try{
@@ -2967,28 +2999,22 @@ function ensureScrolloff(editor){
         }
         // フォールバック: delta < 0.5 でスクロールされなかったが、scrolloff により本来スクロール必要なケース
         try{
+          // フォールバックはバウンス抑制のため縦方向移動で margin 未満 & delta<0.5 かつ視野外のときのみ
           if (Math.abs(delta) < 0.5){
             var so = getScrolloff();
-            if (so > 0){
-              var upMarginPx2 = so * lh;
-              var downMarginPx2 = so * lh;
+            var vert = false; try{ vert = (lastMotionDir==='up'||lastMotionDir==='down'); }catch(__){}
+            if (so > 0 && vert){
               var curTop2 = editor.scrollTop;
               var viewBottom2 = curTop2 + visibleH;
-              var needsUp = (cursorTop - upMarginPx2) < curTop2;
-              var needsDown = (cursorBottom + downMarginPx2) > viewBottom2;
+              var needsUp = (cursorTop - upMarginPx) < curTop2;
+              var needsDown = (cursorBottom + downMarginPx) > viewBottom2;
               if (needsUp || needsDown){
-                var fallbackTop = curTop2;
-                if (needsUp){ fallbackTop = cursorTop - upMarginPx2; }
-                else if (needsDown){ fallbackTop = cursorBottom + downMarginPx2 - visibleH; }
+                var fallbackTop = needsUp ? (cursorTop - upMarginPx) : (cursorBottom + downMarginPx - visibleH);
                 if (stylePT>0) fallbackTop -= stylePT;
                 if (fallbackTop < 0) fallbackTop = 0; if (fallbackTop > realMax) fallbackTop = realMax;
-                // 最低 0.5px 以上動くよう丸め
                 var snap2 = Math.round(fallbackTop / lh) * lh;
-                if (Math.abs(snap2 - curTop2) < 0.5){
-                  snap2 = (fallbackTop > curTop2) ? Math.ceil(fallbackTop / lh) * lh : Math.floor(fallbackTop / lh) * lh;
-                }
-                if (snap2 < 0) snap2 = 0; if (snap2 > realMax) snap2 = realMax;
                 if (Math.abs(snap2 - curTop2) >= 0.5){ editor.scrollTop = snap2; }
+                try{ window._lastAutoScrollTop = editor.scrollTop|0; window._lastAutoScrollDir = (snap2>curTop2)?1:-1; }catch(_){ }
               }
             }
           }
